@@ -10,8 +10,13 @@ let currentDateFrom = '';
 let currentDateTo = '';
 let hideDupes = true;
 let currentScoreMin = '';
+let currentKillsMin = '';
 let currentHighlightType = '';
+let currentClutchType = '';
+let currentAgent = '';
+let currentWeapon = '';
 let currentMap = '';
+let acesOnly = false;
 
 // ---- Utilities ----
 
@@ -35,6 +40,23 @@ function formatDuration(seconds) {
     const sec = s % 60;
     if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
     return `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+function formatClipName(filename) {
+    // "Valorant YYYY.MM.DD - HH.MM.SS.NN.DVR.mp4" -> "DVR 2025-07-11 20:33"
+    const dvrMatch = filename.match(/Valorant\s+(\d{4})\.(\d{2})\.(\d{2})\s*-\s*(\d{2})\.(\d{2})\.(\d{2})\.\d+\.DVR\.mp4/i);
+    if (dvrMatch) {
+        const [, y, mo, d, h, mi] = dvrMatch;
+        return `DVR ${y}-${mo}-${d} ${h}:${mi}`;
+    }
+    // "VALORANT_replay_YYYY.MM.DD-HH.MM.mp4" -> "Replay 2025-07-11 20:33"
+    const replayMatch = filename.match(/VALORANT_replay_(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.mp4/i);
+    if (replayMatch) {
+        const [, y, mo, d, h, mi] = replayMatch;
+        return `Replay ${y}-${mo}-${d} ${h}:${mi}`;
+    }
+    // Strip .mp4 extension for cleaner display
+    return filename.replace(/\.mp4$/i, '');
 }
 
 // ---- Format static elements ----
@@ -66,8 +88,13 @@ async function loadClips() {
     if (currentDateTo) params.set('date_to', currentDateTo);
     if (hideDupes) params.set('hide_dupes', 'true');
     if (currentScoreMin) params.set('score_min', currentScoreMin);
+    if (currentKillsMin) params.set('kills_min', currentKillsMin);
     if (currentHighlightType) params.set('highlight_type', currentHighlightType);
+    if (currentClutchType) params.set('clutch_type', currentClutchType);
+    if (currentAgent) params.set('player_agent', currentAgent);
+    if (currentWeapon) params.set('weapon', currentWeapon);
     if (currentMap) params.set('map_name', currentMap);
+    if (acesOnly) params.set('aces_only', 'true');
 
     const resp = await fetch(`${API}/clips?${params}`);
     const data = await resp.json();
@@ -101,15 +128,18 @@ async function loadClips() {
             const thumbName = clip.thumbnail_path.split('/').pop().split('\\').pop();
             img.src = `/thumbnails/${thumbName}`;
         } else {
-            img.src = '';
-            img.alt = 'No thumbnail';
+            img.remove();
+            const placeholder = document.createElement('div');
+            placeholder.className = 'no-thumb';
+            placeholder.innerHTML = `<span class="no-thumb-icon">&#9654;</span><span class="no-thumb-id">#${clip.id}</span>`;
+            card.querySelector('.thumb-wrap').prepend(placeholder);
         }
 
         if (clip.duplicate_of) {
             dupeBadge.style.display = '';
         }
 
-        if (clip.ai_score && clip.ai_score >= 5) {
+        if (clip.ai_score) {
             scoreBadge.textContent = `${clip.ai_score}/10`;
             scoreBadge.className = `card-score score-${clip.ai_score}`;
             scoreBadge.style.display = '';
@@ -119,15 +149,38 @@ async function loadClips() {
         date.textContent = clip.recorded_at
             ? new Date(clip.recorded_at).toLocaleDateString()
             : '-';
-        name.textContent = clip.filename;
+        name.textContent = formatClipName(clip.filename);
 
-        const parts = [];
-        if (clip.ai_highlight_type) parts.push(clip.ai_highlight_type);
-        if (clip.ai_map) parts.push(clip.ai_map);
-        if (clip.width && clip.height) parts.push(`${clip.width}x${clip.height}`);
-        if (clip.file_size_bytes) parts.push(formatBytes(clip.file_size_bytes));
-        if (clip.share_name) parts.push(clip.share_name);
-        meta.textContent = parts.join(' | ');
+        // Build colored pill badges for AI data
+        meta.innerHTML = '';
+        const pills = document.createElement('div');
+        pills.className = 'card-pills';
+        const addPill = (text, cls) => {
+            const pill = document.createElement('span');
+            pill.className = `card-pill ${cls}`;
+            pill.textContent = text;
+            pills.appendChild(pill);
+        };
+
+        if (clip.ai_kills) addPill(`${clip.ai_kills}K`, 'kills');
+        if (clip.ai_is_ace) addPill('ACE', 'ace');
+        if (clip.ai_clutch_type) addPill(clip.ai_clutch_type, 'clutch');
+        if (clip.ai_highlight_type && clip.ai_highlight_type !== 'regular-round' &&
+            clip.ai_highlight_type !== 'non-gameplay')
+            addPill(clip.ai_highlight_type, 'type');
+        if (clip.ai_player_agent) addPill(clip.ai_player_agent, 'agent');
+        if (clip.ai_map) addPill(clip.ai_map, 'map');
+        if (clip.ai_weapon) addPill(clip.ai_weapon, 'weapon');
+
+        if (pills.children.length > 0) {
+            meta.appendChild(pills);
+        } else {
+            // Fallback: show resolution + size
+            const parts = [];
+            if (clip.width && clip.height) parts.push(`${clip.width}x${clip.height}`);
+            if (clip.file_size_bytes) parts.push(formatBytes(clip.file_size_bytes));
+            meta.textContent = parts.join(' | ');
+        }
 
         grid.appendChild(card);
     }
@@ -295,23 +348,23 @@ async function loadFilterOptions() {
     const resp = await fetch(`${API}/filters`);
     const data = await resp.json();
 
-    if (typeSelect && data.highlight_types) {
-        for (const t of data.highlight_types) {
+    // Populate dynamic filter dropdowns
+    const populateSelect = (id, items) => {
+        const el = document.getElementById(id);
+        if (!el || !items) return;
+        for (const item of items) {
             const opt = document.createElement('option');
-            opt.value = t.name;
-            opt.textContent = `${t.name} (${t.count})`;
-            typeSelect.appendChild(opt);
+            opt.value = item.name;
+            opt.textContent = `${item.name} (${item.count})`;
+            el.appendChild(opt);
         }
-    }
+    };
 
-    if (mapSelect && data.maps) {
-        for (const m of data.maps) {
-            const opt = document.createElement('option');
-            opt.value = m.name;
-            opt.textContent = `${m.name} (${m.count})`;
-            mapSelect.appendChild(opt);
-        }
-    }
+    populateSelect('type-filter', data.highlight_types);
+    populateSelect('map-filter', data.maps);
+    populateSelect('clutch-filter', data.clutch_types);
+    populateSelect('weapon-filter', data.weapons);
+    populateSelect('agent-filter', data.agents);
 
     if (data.score_distribution) {
         renderScoreChart(data.score_distribution);
@@ -319,39 +372,42 @@ async function loadFilterOptions() {
 }
 
 function setupFilterEvents() {
-    const scoreFilter = document.getElementById('score-filter');
-    const typeFilter = document.getElementById('type-filter');
-    const mapFilter = document.getElementById('map-filter');
+    const filters = {
+        'score-filter': v => { currentScoreMin = v; },
+        'kills-filter': v => { currentKillsMin = v; },
+        'type-filter': v => { currentHighlightType = v; },
+        'clutch-filter': v => { currentClutchType = v; },
+        'agent-filter': v => { currentAgent = v; },
+        'weapon-filter': v => { currentWeapon = v; },
+        'map-filter': v => { currentMap = v; },
+    };
     const clearBtn = document.getElementById('clear-filters');
+    const acesCheckbox = document.getElementById('aces-only');
+
+    function hasActiveFilters() {
+        return currentScoreMin || currentKillsMin || currentHighlightType ||
+               currentClutchType || currentAgent || currentWeapon || currentMap || acesOnly;
+    }
 
     function updateClearBtn() {
-        if (clearBtn) {
-            const active = currentScoreMin || currentHighlightType || currentMap;
-            clearBtn.style.display = active ? '' : 'none';
+        if (clearBtn) clearBtn.style.display = hasActiveFilters() ? '' : 'none';
+    }
+
+    for (const [id, setter] of Object.entries(filters)) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('change', () => {
+                setter(el.value);
+                currentPage = 1;
+                updateClearBtn();
+                loadClips();
+            });
         }
     }
 
-    if (scoreFilter) {
-        scoreFilter.addEventListener('change', () => {
-            currentScoreMin = scoreFilter.value;
-            currentPage = 1;
-            updateClearBtn();
-            loadClips();
-        });
-    }
-
-    if (typeFilter) {
-        typeFilter.addEventListener('change', () => {
-            currentHighlightType = typeFilter.value;
-            currentPage = 1;
-            updateClearBtn();
-            loadClips();
-        });
-    }
-
-    if (mapFilter) {
-        mapFilter.addEventListener('change', () => {
-            currentMap = mapFilter.value;
+    if (acesCheckbox) {
+        acesCheckbox.addEventListener('change', () => {
+            acesOnly = acesCheckbox.checked;
             currentPage = 1;
             updateClearBtn();
             loadClips();
@@ -361,11 +417,18 @@ function setupFilterEvents() {
     if (clearBtn) {
         clearBtn.addEventListener('click', () => {
             currentScoreMin = '';
+            currentKillsMin = '';
             currentHighlightType = '';
+            currentClutchType = '';
+            currentAgent = '';
+            currentWeapon = '';
             currentMap = '';
-            if (scoreFilter) scoreFilter.value = '';
-            if (typeFilter) typeFilter.value = '';
-            if (mapFilter) mapFilter.value = '';
+            acesOnly = false;
+            for (const id of Object.keys(filters)) {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            }
+            if (acesCheckbox) acesCheckbox.checked = false;
             currentPage = 1;
             updateClearBtn();
             loadClips();

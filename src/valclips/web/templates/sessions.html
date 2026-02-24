@@ -33,7 +33,7 @@
             <td>{{ s.share or '-' }}</td>
             <td>
                 {% if s.best_clip_id %}
-                <a href="/clips/{{ s.best_clip_id }}">{{ (s.best_clip_name or '-')[:35] }}</a>
+                <a href="/clips/{{ s.best_clip_id }}">{{ (s.best_clip_name or '-') | format_clip_name }}</a>
                 {% else %}-{% endif %}
             </td>
         </tr>

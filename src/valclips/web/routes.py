@@ -1,6 +1,7 @@
 """API + page routes + video streaming proxy."""
 
 import os
+import re
 import mimetypes
 from pathlib import Path
 
@@ -13,10 +14,35 @@ from ..db import (
     get_connection, list_clips, get_clip, get_adjacent_clip_ids,
     add_tag, remove_tag, get_all_tags, get_stats, get_timeline,
     get_top_clips, get_sessions, get_filter_options, get_related_clips,
+    get_insights,
 )
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
+
+def _format_clip_name(filename: str) -> str:
+    """Clean up Valorant clip filenames for display."""
+    # DVR: "Valorant YYYY.MM.DD - HH.MM.SS.NN.DVR.mp4"
+    m = re.match(
+        r"Valorant\s+(\d{4})\.(\d{2})\.(\d{2})\s*-\s*(\d{2})\.(\d{2})\.\d+\.\d+\.DVR\.mp4",
+        filename, re.IGNORECASE,
+    )
+    if m:
+        y, mo, d, h, mi = m.groups()
+        return f"DVR {y}-{mo}-{d} {h}:{mi}"
+    # Replay: "VALORANT_replay_YYYY.MM.DD-HH.MM.mp4"
+    m = re.match(
+        r"VALORANT_replay_(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.mp4",
+        filename, re.IGNORECASE,
+    )
+    if m:
+        y, mo, d, h, mi = m.groups()
+        return f"Replay {y}-{mo}-{d} {h}:{mi}"
+    return filename.removesuffix(".mp4").removesuffix(".MP4")
+
+
+templates.env.filters["format_clip_name"] = _format_clip_name
 
 
 # ---- HTML Pages ----
@@ -66,6 +92,11 @@ def api_list_clips(
     score_min: int | None = None,
     highlight_type: str | None = None,
     map_name: str | None = None,
+    clutch_type: str | None = None,
+    weapon: str | None = None,
+    player_agent: str | None = None,
+    aces_only: bool = Query(False),
+    kills_min: int | None = None,
 ):
     with get_connection() as conn:
         result = list_clips(
@@ -73,7 +104,9 @@ def api_list_clips(
             tag=tag, date_from=date_from, date_to=date_to,
             share=share, search=search, hide_dupes=hide_dupes,
             score_min=score_min, highlight_type=highlight_type,
-            map_name=map_name,
+            map_name=map_name, clutch_type=clutch_type,
+            weapon=weapon, player_agent=player_agent,
+            aces_only=aces_only, kills_min=kills_min,
         )
     return result.model_dump()
 
@@ -143,6 +176,73 @@ def api_top(limit: int = Query(20, ge=1, le=100)):
 def api_sessions(limit: int = Query(50, ge=1, le=200), gap: int = Query(30, ge=5, le=180)):
     with get_connection() as conn:
         return get_sessions(conn, gap_minutes=gap)[:limit]
+
+
+@router.post("/api/clips/{clip_id}/analyze")
+async def api_analyze_clip(clip_id: int):
+    """Trigger re-analysis of a single clip via Gemini."""
+    import os
+    with get_connection() as conn:
+        clip = get_clip(conn, clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(503, "GEMINI_API_KEY not set")
+
+    try:
+        from ..ai.gemini_analyzer import GeminiAnalyzer
+        from ..ai.highlights import get_clip_highlights
+
+        analyzer = GeminiAnalyzer(api_key=api_key)
+        segments, frames = get_clip_highlights(
+            clip.file_path, duration=clip.duration_seconds, max_frames=8,
+        )
+        ar = analyzer.analyze(clip.file_path, frames)
+
+        with get_connection() as conn:
+            from ..db import update_clip_ai
+            update_clip_ai(
+                conn, clip_id, agent=ar.agent,
+                map_name=ar.map_name, summary=ar.summary,
+                tags=ar.tags, score=ar.score, kills=ar.kills,
+                highlight_type=ar.highlight_type,
+                clutch_type=ar.clutch_type, weapon=ar.weapon,
+                player_agent=ar.player_agent, deaths=ar.deaths,
+                is_ace=ar.is_ace,
+                round_outcome=ar.round_outcome,
+                confidence=ar.confidence,
+            )
+
+        # Clean up frames
+        for f in frames:
+            try:
+                f.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        return {"ok": True, "score": ar.score, "summary": ar.summary}
+    except Exception as e:
+        raise HTTPException(500, f"Analysis failed: {str(e)[:200]}")
+
+
+@router.get("/api/insights")
+def api_insights():
+    with get_connection() as conn:
+        return get_insights(conn)
+
+
+@router.get("/insights", response_class=HTMLResponse)
+def insights_page(request: Request):
+    with get_connection() as conn:
+        insights = get_insights(conn)
+        stats = get_stats(conn)
+    return templates.TemplateResponse("insights.html", {
+        "request": request,
+        "insights": insights,
+        "stats": stats,
+    })
 
 
 @router.get("/top", response_class=HTMLResponse)

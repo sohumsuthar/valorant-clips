@@ -87,6 +87,17 @@ MIGRATIONS = [
     "ALTER TABLE clips ADD COLUMN ai_score INTEGER;",
     "ALTER TABLE clips ADD COLUMN ai_kills INTEGER;",
     "ALTER TABLE clips ADD COLUMN ai_highlight_type TEXT;",
+    # v2: richer gameplay data
+    "ALTER TABLE clips ADD COLUMN ai_clutch_type TEXT;",     # 1v1, 1v2, 1v3, 1v4, 1v5
+    "ALTER TABLE clips ADD COLUMN ai_weapon TEXT;",          # vandal, phantom, operator, etc.
+    "ALTER TABLE clips ADD COLUMN ai_player_agent TEXT;",    # jett, reyna, etc. (player's agent)
+    "ALTER TABLE clips ADD COLUMN ai_deaths INTEGER;",       # deaths in clip
+    "ALTER TABLE clips ADD COLUMN ai_is_ace INTEGER;",       # 1 if ace, 0 otherwise
+    "ALTER TABLE clips ADD COLUMN ai_round_outcome TEXT;",   # win, loss, draw
+    "ALTER TABLE clips ADD COLUMN ai_confidence REAL;",      # 0-1 confidence
+    "CREATE INDEX IF NOT EXISTS idx_clips_ai_score ON clips(ai_score);",
+    "CREATE INDEX IF NOT EXISTS idx_clips_ai_kills ON clips(ai_kills);",
+    "CREATE INDEX IF NOT EXISTS idx_clips_highlight_type ON clips(ai_highlight_type);",
 ]
 
 
@@ -256,11 +267,17 @@ def list_clips(
     score_min: int | None = None,
     highlight_type: str | None = None,
     map_name: str | None = None,
+    clutch_type: str | None = None,
+    weapon: str | None = None,
+    player_agent: str | None = None,
+    aces_only: bool = False,
+    kills_min: int | None = None,
 ) -> ClipPage:
     """Paginated clip listing with filters."""
     sort_map = {
         "date": "c.recorded_at DESC",
         "score": "CASE WHEN c.ai_score IS NULL THEN 1 ELSE 0 END, c.ai_score DESC",
+        "kills": "CASE WHEN c.ai_kills IS NULL THEN 1 ELSE 0 END, c.ai_kills DESC",
         "duration": "c.duration_seconds DESC",
         "size": "c.file_size_bytes DESC",
         "name": "c.filename ASC",
@@ -293,6 +310,20 @@ def list_clips(
     if map_name:
         where_parts.append("c.ai_map = ?")
         params.append(map_name)
+    if clutch_type:
+        where_parts.append("c.ai_clutch_type = ?")
+        params.append(clutch_type)
+    if weapon:
+        where_parts.append("c.ai_weapon = ?")
+        params.append(weapon)
+    if player_agent:
+        where_parts.append("c.ai_player_agent = ?")
+        params.append(player_agent)
+    if aces_only:
+        where_parts.append("c.ai_is_ace = 1")
+    if kills_min is not None:
+        where_parts.append("c.ai_kills >= ?")
+        params.append(kills_min)
     if search:
         where_parts.append(
             "(c.filename LIKE ? OR c.directory LIKE ? OR c.ai_summary LIKE ? OR c.id IN "
@@ -450,15 +481,26 @@ def update_clip_ai(
     score: int | None = None,
     kills: int | None = None,
     highlight_type: str | None = None,
+    clutch_type: str | None = None,
+    weapon: str | None = None,
+    player_agent: str | None = None,
+    deaths: int | None = None,
+    is_ace: bool = False,
+    round_outcome: str | None = None,
+    confidence: float | None = None,
 ):
     now = datetime.now().isoformat()
     conn.execute(
         """UPDATE clips SET
             ai_agent=?, ai_map=?, ai_summary=?, ai_score=?, ai_kills=?,
-            ai_highlight_type=?, ai_analyzed_at=?,
+            ai_highlight_type=?, ai_clutch_type=?, ai_weapon=?,
+            ai_player_agent=?, ai_deaths=?, ai_is_ace=?,
+            ai_round_outcome=?, ai_confidence=?, ai_analyzed_at=?,
             updated_at=datetime('now')
         WHERE id=?""",
-        (agent, map_name, summary, score, kills, highlight_type, now, clip_id),
+        (agent, map_name, summary, score, kills, highlight_type,
+         clutch_type, weapon, player_agent, deaths,
+         1 if is_ace else 0, round_outcome, confidence, now, clip_id),
     )
     for tag_name in tags:
         conn.execute(
@@ -646,10 +688,123 @@ def get_filter_options(conn: sqlite3.Connection) -> dict:
         WHERE ai_score IS NOT NULL AND duplicate_of IS NULL
         GROUP BY ai_score ORDER BY ai_score DESC
     """).fetchall()
+    clutch_types = conn.execute("""
+        SELECT ai_clutch_type, COUNT(*) as c FROM clips
+        WHERE ai_clutch_type IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_clutch_type ORDER BY c DESC
+    """).fetchall()
+    weapons = conn.execute("""
+        SELECT ai_weapon, COUNT(*) as c FROM clips
+        WHERE ai_weapon IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_weapon ORDER BY c DESC
+    """).fetchall()
+    agents = conn.execute("""
+        SELECT ai_player_agent, COUNT(*) as c FROM clips
+        WHERE ai_player_agent IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_player_agent ORDER BY c DESC
+    """).fetchall()
+    ace_count = conn.execute("""
+        SELECT COUNT(*) as c FROM clips
+        WHERE ai_is_ace = 1 AND duplicate_of IS NULL
+    """).fetchone()["c"]
     return {
         "highlight_types": [{"name": r["ai_highlight_type"], "count": r["c"]} for r in types],
         "maps": [{"name": r["ai_map"], "count": r["c"]} for r in maps],
         "score_distribution": [{"score": r["ai_score"], "count": r["c"]} for r in score_dist],
+        "clutch_types": [{"name": r["ai_clutch_type"], "count": r["c"]} for r in clutch_types],
+        "weapons": [{"name": r["ai_weapon"], "count": r["c"]} for r in weapons],
+        "agents": [{"name": r["ai_player_agent"], "count": r["c"]} for r in agents],
+        "ace_count": ace_count,
+    }
+
+
+def get_insights(conn: sqlite3.Connection) -> dict:
+    """Get detailed analysis insights for the insights page."""
+    analyzed_count = conn.execute(
+        "SELECT COUNT(*) FROM clips WHERE ai_analyzed_at IS NOT NULL AND duplicate_of IS NULL"
+    ).fetchone()[0]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM clips WHERE duplicate_of IS NULL"
+    ).fetchone()[0]
+
+    _where = "ai_analyzed_at IS NOT NULL AND duplicate_of IS NULL"
+
+    # Agent stats with avg score and kills
+    agent_stats = conn.execute(f"""
+        SELECT ai_player_agent, COUNT(*) as cnt,
+               ROUND(AVG(ai_score), 1) as avg_score,
+               ROUND(AVG(ai_kills), 1) as avg_kills,
+               SUM(ai_kills) as total_kills,
+               SUM(CASE WHEN ai_is_ace = 1 THEN 1 ELSE 0 END) as aces
+        FROM clips WHERE {_where} AND ai_player_agent IS NOT NULL
+        GROUP BY ai_player_agent ORDER BY cnt DESC
+    """).fetchall()
+
+    # Map stats
+    map_stats = conn.execute(f"""
+        SELECT ai_map, COUNT(*) as cnt,
+               ROUND(AVG(ai_score), 1) as avg_score,
+               ROUND(AVG(ai_kills), 1) as avg_kills,
+               SUM(CASE WHEN ai_round_outcome = 'win' THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN ai_round_outcome = 'loss' THEN 1 ELSE 0 END) as losses
+        FROM clips WHERE {_where} AND ai_map IS NOT NULL
+        GROUP BY ai_map ORDER BY cnt DESC
+    """).fetchall()
+
+    # Weapon stats
+    weapon_stats = conn.execute(f"""
+        SELECT ai_weapon, COUNT(*) as cnt,
+               ROUND(AVG(ai_score), 1) as avg_score,
+               ROUND(AVG(ai_kills), 1) as avg_kills,
+               SUM(ai_kills) as total_kills
+        FROM clips WHERE {_where} AND ai_weapon IS NOT NULL
+        GROUP BY ai_weapon ORDER BY cnt DESC
+    """).fetchall()
+
+    # Highlight type distribution
+    type_stats = conn.execute(f"""
+        SELECT ai_highlight_type, COUNT(*) as cnt, ROUND(AVG(ai_score), 1) as avg_score
+        FROM clips WHERE {_where} AND ai_highlight_type IS NOT NULL
+        GROUP BY ai_highlight_type ORDER BY cnt DESC
+    """).fetchall()
+
+    # Kill distribution
+    kill_dist = conn.execute(f"""
+        SELECT ai_kills, COUNT(*) as cnt
+        FROM clips WHERE {_where} AND ai_kills IS NOT NULL
+        GROUP BY ai_kills ORDER BY ai_kills
+    """).fetchall()
+
+    # Overall gameplay stats
+    totals = conn.execute(f"""
+        SELECT
+            SUM(ai_kills) as total_kills,
+            SUM(ai_deaths) as total_deaths,
+            SUM(CASE WHEN ai_is_ace = 1 THEN 1 ELSE 0 END) as total_aces,
+            SUM(CASE WHEN ai_clutch_type IS NOT NULL THEN 1 ELSE 0 END) as total_clutches,
+            SUM(CASE WHEN ai_round_outcome = 'win' THEN 1 ELSE 0 END) as wins,
+            SUM(CASE WHEN ai_round_outcome = 'loss' THEN 1 ELSE 0 END) as losses,
+            ROUND(AVG(ai_score), 1) as avg_score,
+            MAX(ai_score) as max_score
+        FROM clips WHERE {_where}
+    """).fetchone()
+
+    return {
+        "analyzed": analyzed_count,
+        "total": total,
+        "agent_stats": [dict(r) for r in agent_stats],
+        "map_stats": [dict(r) for r in map_stats],
+        "weapon_stats": [dict(r) for r in weapon_stats],
+        "type_stats": [dict(r) for r in type_stats],
+        "kill_distribution": [dict(r) for r in kill_dist],
+        "total_kills": totals["total_kills"] or 0,
+        "total_deaths": totals["total_deaths"] or 0,
+        "total_aces": totals["total_aces"] or 0,
+        "total_clutches": totals["total_clutches"] or 0,
+        "wins": totals["wins"] or 0,
+        "losses": totals["losses"] or 0,
+        "avg_score": totals["avg_score"] or 0,
+        "max_score": totals["max_score"] or 0,
     }
 
 

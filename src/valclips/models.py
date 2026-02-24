@@ -27,6 +27,13 @@ class Clip(BaseModel):
     ai_score: int | None = None
     ai_kills: int | None = None
     ai_highlight_type: str | None = None
+    ai_clutch_type: str | None = None       # 1v1, 1v2, 1v3, 1v4, 1v5
+    ai_weapon: str | None = None            # vandal, phantom, operator, etc.
+    ai_player_agent: str | None = None      # jett, reyna, etc.
+    ai_deaths: int | None = None
+    ai_is_ace: int | None = None            # 1 if ace
+    ai_round_outcome: str | None = None     # win, loss
+    ai_confidence: float | None = None
     ai_analyzed_at: datetime | None = None
     duplicate_of: int | None = None
     created_at: datetime | None = None
@@ -52,14 +59,20 @@ class ScanResult(BaseModel):
 
 
 class AnalysisResult(BaseModel):
-    agent: str
+    agent: str                          # analyzer name
     map_name: str | None = None
     tags: list[str] = []
     summary: str | None = None
     confidence: float | None = None
-    score: int | None = None           # 1-10 impressiveness
-    kills: int | None = None           # kills detected in clip
-    highlight_type: str | None = None  # ace, clutch, multi-kill, etc.
+    score: int | None = None            # 1-10 impressiveness
+    kills: int | None = None            # kills detected in clip
+    deaths: int | None = None
+    highlight_type: str | None = None   # ace, clutch, multi-kill, flick, etc.
+    clutch_type: str | None = None      # 1v1, 1v2, 1v3, 1v4, 1v5
+    weapon: str | None = None           # primary weapon used
+    player_agent: str | None = None     # player's valorant agent
+    is_ace: bool = False
+    round_outcome: str | None = None    # win, loss
 
 
 class ClipPage(BaseModel):
