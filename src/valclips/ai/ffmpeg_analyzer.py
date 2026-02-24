@@ -33,6 +33,7 @@ CURATED_FOLDERS = {
     "guardian": 1.0,
     "op": 1.0,
     "finished vids": 1.5,
+    "test clips": 1.0,
 }
 
 # Tags that signal interesting content
@@ -45,6 +46,32 @@ SIGNAL_TAGS = {
     "clip": 1.0,
 }
 
+# Scene detection threshold -- lowered for Valorant gameplay.
+# FPS gameplay is continuous (no hard cuts), so we need a lower threshold
+# to pick up ability flashes, death screens, round transitions, etc.
+SCENE_THRESHOLD = 0.12
+
+
+def _get_duration_ffprobe(clip_path: str) -> float | None:
+    """Extract duration via ffprobe if not provided."""
+    cmd = [
+        "ffprobe", "-v", "quiet", "-print_format", "json",
+        "-show_format", clip_path,
+    ]
+    try:
+        import json
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=FFPROBE_TIMEOUT,
+        )
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            dur = data.get("format", {}).get("duration")
+            if dur:
+                return float(dur)
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+    return None
+
 
 def _get_scene_score(clip_path: str, duration: float | None) -> tuple[float, int]:
     """Count scene changes and compute density score.
@@ -56,7 +83,7 @@ def _get_scene_score(clip_path: str, duration: float | None) -> tuple[float, int
 
     cmd = [
         "ffmpeg", "-i", clip_path,
-        "-vf", "select='gt(scene,0.25)',showinfo",
+        "-vf", f"select='gt(scene,{SCENE_THRESHOLD})',showinfo",
         "-vsync", "vfr",
         "-f", "null", "-",
     ]
@@ -72,7 +99,7 @@ def _get_scene_score(clip_path: str, duration: float | None) -> tuple[float, int
                 count += 1
 
         # Normalize: scene changes per second
-        # Typical gameplay: 0.1-0.3/s, action: 0.5-1.0/s, intense: 1.0+/s
+        # At threshold 0.12 for Valorant DVR: calm ~0.2-0.4/s, action ~0.5-0.8/s
         density = count / duration
         score = min(1.0, density / 0.8)  # 0.8 changes/s = max score
         return score, count
@@ -112,47 +139,14 @@ def _bitrate_from_sizes(sizes: list[int]) -> float:
         return 0.0
     variance = sum((s - mean) ** 2 for s in sizes) / len(sizes)
     cv = (variance ** 0.5) / mean
-    return min(1.0, cv / 1.5)
+    # Valorant DVR clips typically have CV 0.2-0.6; action clips trend higher
+    return min(1.0, cv / 0.8)
 
 
 def _get_bitrate_variance(clip_path: str) -> float:
-    """Measure bitrate variance across the clip using frame sizes.
-
-    High variance = mix of calm/action. Returns normalized 0-1 score.
-    """
-    cmd = [
-        "ffprobe", "-v", "quiet",
-        "-select_streams", "v:0",
-        "-show_entries", "frame=pkt_size",
-        "-of", "csv=p=0",
-        clip_path,
-    ]
-
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True,
-            timeout=FFPROBE_TIMEOUT * 3,
-        )
-        sizes = []
-        for line in result.stdout.strip().split("\n"):
-            line = line.strip()
-            if line and line.isdigit():
-                sizes.append(int(line))
-
-        if len(sizes) < 10:
-            return 0.0
-
-        mean = sum(sizes) / len(sizes)
-        if mean == 0:
-            return 0.0
-
-        variance = sum((s - mean) ** 2 for s in sizes) / len(sizes)
-        # Coefficient of variation (std/mean)
-        cv = (variance ** 0.5) / mean
-        # CV > 1.0 is very high variance, typical of action clips
-        return min(1.0, cv / 1.5)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return 0.0
+    """Measure bitrate variance across the clip using frame sizes."""
+    sizes = _get_frame_sizes_raw(clip_path)
+    return _bitrate_from_sizes(sizes)
 
 
 def _folder_bonus(directory: str | None) -> float:
@@ -180,20 +174,21 @@ def _tag_bonus(tags: list[str]) -> float:
 
 
 def _duration_signal(duration: float | None) -> float:
-    """Score based on duration. Short clips in curated folders = likely trimmed highlights."""
+    """Score based on duration. Standard DVR length is neutral, not penalized."""
     if not duration:
-        return 0.0
-    # Sweet spot: 10-30s (trimmed highlight), penalty for very long/short
+        return 0.3  # Unknown = neutral
     if 10 <= duration <= 30:
-        return 1.0
+        return 1.0   # Trimmed highlight
     elif 5 <= duration < 10:
-        return 0.6
+        return 0.7   # Very short clip
     elif 30 < duration <= 60:
-        return 0.5
+        return 0.6   # Short recording
     elif 60 < duration <= 120:
-        return 0.3
+        return 0.5   # Standard DVR (ShadowPlay default ~80s)
+    elif 120 < duration <= 300:
+        return 0.3   # Long recording
     else:
-        return 0.1
+        return 0.1   # Very long
 
 
 def _combined_audio_analysis(clip_path: str, duration: float | None) -> dict:
@@ -201,13 +196,10 @@ def _combined_audio_analysis(clip_path: str, duration: float | None) -> dict:
 
     Runs ONE FFmpeg command with chained audio filters to get both
     silence intervals and volume statistics, avoiding duplicate file reads.
-
-    Returns dict with: score, peak_count, peak_density, loudness_range,
-    gunfire_segments, mean_volume, max_volume.
     """
     try:
         from .audio import (
-            detect_silence, get_volume_stats, _invert_silence, _get_duration,
+            _invert_silence, _get_duration,
             _SILENCE_START_RE, _SILENCE_END_RE, _MEAN_VOLUME_RE, _MAX_VOLUME_RE,
             SilenceInterval, VolumeStats, LoudSegment,
             GUNFIRE_WINDOW, GUNFIRE_MIN_PEAKS,
@@ -316,10 +308,7 @@ def _combined_audio_analysis(clip_path: str, duration: float | None) -> dict:
 
 
 def _motion_from_frame_sizes(frame_sizes: list[int]) -> float:
-    """Compute motion score from frame sizes (reuses bitrate variance data).
-
-    Same data as _get_bitrate_variance but returns a 0-1 motion score.
-    """
+    """Compute motion score from frame sizes (reuses bitrate variance data)."""
     if len(frame_sizes) < 10:
         return 0.0
     mean = sum(frame_sizes) / len(frame_sizes)
@@ -327,7 +316,8 @@ def _motion_from_frame_sizes(frame_sizes: list[int]) -> float:
         return 0.0
     variance = sum((s - mean) ** 2 for s in frame_sizes) / len(frame_sizes)
     cv = (variance ** 0.5) / mean
-    return min(1.0, cv / 1.5)
+    # Valorant DVR clips typically have CV 0.2-0.6; action clips trend higher
+    return min(1.0, cv / 0.8)
 
 
 class FFmpegHeuristicAnalyzer(ClipAnalyzer):
@@ -335,21 +325,18 @@ class FFmpegHeuristicAnalyzer(ClipAnalyzer):
 
     Modes:
         quick: Metadata-only (instant, least accurate)
-        normal (default): Scene changes + bitrate variance (fast)
-        deep: + audio intensity + gunfire detection + motion analysis (slow but thorough)
+        normal (default): Scene changes + bitrate variance (2 FFmpeg passes)
+        deep: + audio intensity + gunfire detection + motion analysis (3 passes, slow)
     """
 
     def __init__(self, quick: bool = False, deep: bool = False):
-        """
-        Args:
-            quick: If True, skip FFmpeg analysis entirely and use metadata only.
-            deep: If True, add audio + motion analysis on top of scene/bitrate.
-        """
         self.quick = quick
         self.deep = deep
 
     def analyze(self, clip_path: str, keyframes: list[Path]) -> AnalysisResult:
-        return self.analyze_with_metadata(clip_path, keyframes)
+        # Extract duration from ffprobe so analyze() isn't useless
+        duration = _get_duration_ffprobe(clip_path)
+        return self.analyze_with_metadata(clip_path, keyframes, duration=duration)
 
     def analyze_with_metadata(
         self,
@@ -361,6 +348,10 @@ class FFmpegHeuristicAnalyzer(ClipAnalyzer):
     ) -> AnalysisResult:
         tags = tags or []
         result_tags = []
+
+        # If duration wasn't provided, try to get it
+        if not duration:
+            duration = _get_duration_ffprobe(clip_path)
 
         # --- FFmpeg-based signals (skipped in quick mode) ---
         scene_score = 0.0
@@ -375,13 +366,13 @@ class FFmpegHeuristicAnalyzer(ClipAnalyzer):
             scene_score, scene_count = _get_scene_score(clip_path, duration)
 
             if self.deep:
-                # Optimized deep mode: 3 passes total
-                # Pass 2: ffprobe frame sizes → bitrate variance + motion score
+                # Deep mode: 3 passes total
+                # Pass 2: ffprobe frame sizes -> bitrate + motion
                 frame_sizes = _get_frame_sizes_raw(clip_path)
                 bitrate_score = _bitrate_from_sizes(frame_sizes)
                 motion_score = _motion_from_frame_sizes(frame_sizes)
 
-                # Pass 3: single combined audio pass → peaks + volume + gunfire
+                # Pass 3: combined audio -> peaks + volume + gunfire
                 audio_data = _combined_audio_analysis(clip_path, duration)
                 audio_score = audio_data.get("score", 0.0)
                 gunfire_segments = audio_data.get("gunfire_segments", 0)
@@ -394,66 +385,96 @@ class FFmpegHeuristicAnalyzer(ClipAnalyzer):
         dur_signal = _duration_signal(duration)
 
         # --- Weighted combination ---
+        # Key fix: normalize only against signals that are actually achievable.
+        # Separate FFmpeg signals (always available) from metadata bonuses (may be 0).
         if self.quick:
             raw = (
                 folder_bonus * 3.0 +
                 tag_bonus * 2.0 +
                 dur_signal * 1.5
             )
-            max_raw = 3.0 * 3.0 + 3.0 * 2.0 + 1.0 * 1.5  # 16.5
+            # Dynamic max: only count components that could contribute
+            max_raw = 2.0 * 3.0 + 3.0 * 2.0 + 1.0 * 1.5  # 13.5
+            if not folder_bonus and not tag_bonus:
+                # No metadata bonuses available - just duration
+                # Give a baseline score of 2-3 instead of 1
+                score = max(2, min(4, round(dur_signal * 3 + 1)))
+                normalized = score / 10.0
+            else:
+                normalized = raw / max_raw if max_raw > 0 else 0.0
+                score = max(1, min(10, round(normalized * 9 + 1)))
         elif self.deep:
             # Deep mode: full multi-signal scoring
-            raw = (
-                scene_score * 3.5 +       # Visual action density
-                audio_score * 3.0 +        # Audio intensity (gunfire, abilities)
-                motion_score * 2.0 +       # Motion/flick activity
-                bitrate_score * 1.5 +      # Bitrate spikes during action
-                folder_bonus * 2.0 +       # User curation signal
-                tag_bonus * 1.0 +          # Existing tags
-                dur_signal * 0.5           # Duration sweet spot
+            # FFmpeg core signals (always computable)
+            ffmpeg_raw = (
+                scene_score * 3.0 +
+                audio_score * 3.0 +
+                motion_score * 2.0 +
+                bitrate_score * 1.5
             )
+            ffmpeg_max = 3.0 + 3.0 + 2.0 + 1.5  # 9.5
+
+            # Bonus signals (may or may not be available)
+            bonus_raw = (
+                folder_bonus * 1.5 +
+                tag_bonus * 1.0 +
+                dur_signal * 0.5
+            )
+
             # Gunfire bonus: direct evidence of combat
-            if gunfire_segments > 0:
-                raw += min(gunfire_segments, 3) * 1.0
+            gunfire_bonus = min(gunfire_segments, 3) * 0.8
 
-            max_raw = (
-                3.5 + 3.0 + 2.0 + 1.5 +  # ffmpeg signals
-                2.0 * 2.0 +               # folder_bonus max 2.0
-                1.0 * 3.0 +               # tag_bonus max 3.0
-                0.5 + 3.0                  # dur_signal + gunfire bonus
-            )  # = 20.0
+            # Normalize FFmpeg signals to 1-10 independently, then add bonuses
+            ffmpeg_norm = ffmpeg_raw / ffmpeg_max if ffmpeg_max > 0 else 0.0
+            base_score = ffmpeg_norm * 8 + 1  # 1-9 from FFmpeg alone
+
+            # Add bonuses (can push to 10)
+            bonus_points = (bonus_raw / 5.0) * 2 + gunfire_bonus
+            raw_score = base_score + bonus_points
+            score = max(1, min(10, round(raw_score)))
+            normalized = (score - 1) / 9.0
         else:
-            # Normal mode: scene + bitrate + metadata (fast)
-            raw = (
-                scene_score * 4.0 +       # Most important: action density
-                bitrate_score * 2.0 +      # Bitrate spikes during action
-                folder_bonus * 2.5 +       # User curation is a strong signal
-                tag_bonus * 1.5 +          # Tags indicate notable clips
-                dur_signal * 1.0           # Duration sweet spot
+            # Normal mode: scene + bitrate + metadata
+            # FFmpeg core signals
+            ffmpeg_raw = (
+                scene_score * 4.0 +
+                bitrate_score * 2.5
             )
-            max_raw = 4.0 + 2.0 + 2.5 * 2.0 + 1.5 * 3.0 + 1.0  # 16.5
+            ffmpeg_max = 4.0 + 2.5  # 6.5
 
-        # Normalize to 1-10 scale
-        normalized = raw / max_raw if max_raw > 0 else 0.0
-        score = max(1, min(10, round(normalized * 9 + 1)))
+            # Bonus signals
+            bonus_raw = (
+                folder_bonus * 1.5 +
+                tag_bonus * 1.0 +
+                dur_signal * 0.5
+            )
+
+            # Normalize FFmpeg signals independently
+            ffmpeg_norm = ffmpeg_raw / ffmpeg_max if ffmpeg_max > 0 else 0.0
+            base_score = ffmpeg_norm * 8 + 1  # 1-9 from FFmpeg alone
+
+            # Add bonuses
+            bonus_points = (bonus_raw / 5.0) * 2
+            raw_score = base_score + bonus_points
+            score = max(1, min(10, round(raw_score)))
+            normalized = (score - 1) / 9.0
 
         # --- Highlight type classification ---
         highlight_type = "regular"
 
-        # Strong audio + visual = almost certainly an action highlight
-        if audio_score > 0.6 and scene_score > 0.5:
+        if self.deep and audio_score > 0.5 and scene_score > 0.4:
             highlight_type = "likely-highlight"
             result_tags.append("high-action")
-        elif gunfire_segments >= 2 and scene_score > 0.4:
+        elif gunfire_segments >= 2:
             highlight_type = "multi-kill"
             result_tags.append("multi-engagement")
-        elif scene_score > 0.7 and folder_bonus > 0:
+        elif scene_score > 0.6:
             highlight_type = "likely-highlight"
             result_tags.append("high-action")
-        elif scene_score > 0.5:
+        elif scene_score > 0.3:
             highlight_type = "action"
             result_tags.append("action")
-        elif audio_score > 0.5:
+        elif self.deep and audio_score > 0.4:
             highlight_type = "action"
             result_tags.append("audio-action")
         elif folder_bonus >= 1.5:
@@ -463,7 +484,7 @@ class FFmpegHeuristicAnalyzer(ClipAnalyzer):
         # Extra tags from audio/motion signals
         if gunfire_segments > 0:
             result_tags.append("gunfire-detected")
-        if motion_score > 0.7:
+        if motion_score > 0.5:
             result_tags.append("high-motion")
 
         # --- Build summary ---
