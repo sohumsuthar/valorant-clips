@@ -9,7 +9,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
-from .config import SHARES, CLIP_DIRS, FOLDER_TAGS, FFPROBE_TIMEOUT, BATCH_SIZE
+from .config import SHARES, CLIP_DIRS, LOCAL_DIRS, FOLDER_TAGS, FFPROBE_TIMEOUT, BATCH_SIZE
 from .db import (
     get_connection, init_db, upsert_clips_batch, get_existing_paths,
     log_scan_start, log_scan_finish, add_tag,
@@ -135,7 +135,8 @@ def _collect_share_files(
             console.print(f"  [yellow]Share {share_name} not accessible, skipping[/yellow]")
             continue
 
-        dirs_config = CLIP_DIRS.get(share_name, [])
+        # Check both CLIP_DIRS (SMB shares) and LOCAL_DIRS (Windows local paths)
+        dirs_config = CLIP_DIRS.get(share_name, []) or LOCAL_DIRS.get(share_name, [])
         if not dirs_config:
             # No targeted dirs configured, skip (don't walk entire share)
             console.print(f"  [yellow]No clip directories configured for {share_name}[/yellow]")

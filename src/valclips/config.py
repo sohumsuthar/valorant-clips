@@ -70,6 +70,18 @@ FOLDER_TAGS: dict[str, list[str]] = {
     "clips": ["clip"],
 }
 
+# Local directories to scan (Windows / non-GVFS paths).
+# Each entry has a root path, a list of subdirectories, and scan mode.
+LOCAL_DIRS: dict[str, list[dict]] = {}
+
+if sys.platform == "win32":
+    _nvidia = Path("S:/NVIDIA")
+    if _nvidia.exists():
+        LOCAL_DIRS["nvidia"] = [
+            {"path": "Valorant", "mode": "valorant_only"},
+        ]
+        SHARES["nvidia"] = _nvidia
+
 FFPROBE_TIMEOUT = 30  # seconds
 BATCH_SIZE = 50
 DEFAULT_PAGE_SIZE = 50
