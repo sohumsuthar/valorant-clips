@@ -33,7 +33,7 @@
             <span class="rank-badge">#{{ loop.index }}</span>
         </div>
         <div class="card-info">
-            <strong class="card-title">{{ clip.filename[:40] }}</strong>
+            <strong class="card-title">{{ clip.filename | format_clip_name }}</strong>
             {% if clip.ai_map %}<span class="card-meta">{{ clip.ai_map }}</span>{% endif %}
             {% if clip.ai_summary %}<span class="card-summary">{{ clip.ai_summary[:80] }}</span>{% endif %}
             <span class="card-meta">

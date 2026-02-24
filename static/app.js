@@ -42,6 +42,23 @@ function formatDuration(seconds) {
     return `${m}:${String(sec).padStart(2,'0')}`;
 }
 
+function formatClipName(filename) {
+    // "Valorant YYYY.MM.DD - HH.MM.SS.NN.DVR.mp4" -> "DVR 2025-07-11 20:33"
+    const dvrMatch = filename.match(/Valorant\s+(\d{4})\.(\d{2})\.(\d{2})\s*-\s*(\d{2})\.(\d{2})\.(\d{2})\.\d+\.DVR\.mp4/i);
+    if (dvrMatch) {
+        const [, y, mo, d, h, mi] = dvrMatch;
+        return `DVR ${y}-${mo}-${d} ${h}:${mi}`;
+    }
+    // "VALORANT_replay_YYYY.MM.DD-HH.MM.mp4" -> "Replay 2025-07-11 20:33"
+    const replayMatch = filename.match(/VALORANT_replay_(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.mp4/i);
+    if (replayMatch) {
+        const [, y, mo, d, h, mi] = replayMatch;
+        return `Replay ${y}-${mo}-${d} ${h}:${mi}`;
+    }
+    // Strip .mp4 extension for cleaner display
+    return filename.replace(/\.mp4$/i, '');
+}
+
 // ---- Format static elements ----
 
 function formatStaticElements() {
@@ -111,15 +128,18 @@ async function loadClips() {
             const thumbName = clip.thumbnail_path.split('/').pop().split('\\').pop();
             img.src = `/thumbnails/${thumbName}`;
         } else {
-            img.src = '';
-            img.alt = 'No thumbnail';
+            img.remove();
+            const placeholder = document.createElement('div');
+            placeholder.className = 'no-thumb';
+            placeholder.innerHTML = `<span class="no-thumb-icon">&#9654;</span><span class="no-thumb-id">#${clip.id}</span>`;
+            card.querySelector('.thumb-wrap').prepend(placeholder);
         }
 
         if (clip.duplicate_of) {
             dupeBadge.style.display = '';
         }
 
-        if (clip.ai_score && clip.ai_score >= 5) {
+        if (clip.ai_score) {
             scoreBadge.textContent = `${clip.ai_score}/10`;
             scoreBadge.className = `card-score score-${clip.ai_score}`;
             scoreBadge.style.display = '';
@@ -129,32 +149,33 @@ async function loadClips() {
         date.textContent = clip.recorded_at
             ? new Date(clip.recorded_at).toLocaleDateString()
             : '-';
-        name.textContent = clip.filename;
+        name.textContent = formatClipName(clip.filename);
 
-        // Build colored pill badges for AI data, fallback to plain text
-        const hasAI = clip.ai_kills || clip.ai_is_ace || clip.ai_clutch_type ||
-                       clip.ai_player_agent || clip.ai_map || clip.ai_weapon;
-        if (hasAI) {
-            meta.innerHTML = '';
-            const pills = document.createElement('div');
-            pills.className = 'card-pills';
-            const addPill = (text, cls) => {
-                const pill = document.createElement('span');
-                pill.className = `card-pill ${cls}`;
-                pill.textContent = text;
-                pills.appendChild(pill);
-            };
-            if (clip.ai_kills) addPill(`${clip.ai_kills}K`, 'kills');
-            if (clip.ai_is_ace) addPill('ACE', 'ace');
-            if (clip.ai_clutch_type) addPill(clip.ai_clutch_type, 'clutch');
-            if (clip.ai_highlight_type && clip.ai_highlight_type !== 'regular-round' &&
-                clip.ai_highlight_type !== 'non-gameplay')
-                addPill(clip.ai_highlight_type, 'type');
-            if (clip.ai_player_agent) addPill(clip.ai_player_agent, 'agent');
-            if (clip.ai_map) addPill(clip.ai_map, 'map');
-            if (clip.ai_weapon) addPill(clip.ai_weapon, 'weapon');
+        // Build colored pill badges for AI data
+        meta.innerHTML = '';
+        const pills = document.createElement('div');
+        pills.className = 'card-pills';
+        const addPill = (text, cls) => {
+            const pill = document.createElement('span');
+            pill.className = `card-pill ${cls}`;
+            pill.textContent = text;
+            pills.appendChild(pill);
+        };
+
+        if (clip.ai_kills) addPill(`${clip.ai_kills}K`, 'kills');
+        if (clip.ai_is_ace) addPill('ACE', 'ace');
+        if (clip.ai_clutch_type) addPill(clip.ai_clutch_type, 'clutch');
+        if (clip.ai_highlight_type && clip.ai_highlight_type !== 'regular-round' &&
+            clip.ai_highlight_type !== 'non-gameplay')
+            addPill(clip.ai_highlight_type, 'type');
+        if (clip.ai_player_agent) addPill(clip.ai_player_agent, 'agent');
+        if (clip.ai_map) addPill(clip.ai_map, 'map');
+        if (clip.ai_weapon) addPill(clip.ai_weapon, 'weapon');
+
+        if (pills.children.length > 0) {
             meta.appendChild(pills);
         } else {
+            // Fallback: show resolution + size
             const parts = [];
             if (clip.width && clip.height) parts.push(`${clip.width}x${clip.height}`);
             if (clip.file_size_bytes) parts.push(formatBytes(clip.file_size_bytes));
