@@ -459,12 +459,15 @@ def analyze(limit, model, stub, use_ffmpeg, quick, gemini, workers, re_analyze, 
 
     with get_connection() as conn:
         if re_analyze and min_score:
-            # Re-analyze clips that already have a heuristic score >= threshold
-            rows = conn.execute(
-                """SELECT * FROM clips WHERE duplicate_of IS NULL
-                AND ai_score >= ? ORDER BY ai_score DESC LIMIT ?""",
-                (min_score, limit or 100000),
-            ).fetchall()
+            # Re-analyze clips with heuristic score >= threshold, skip already-Gemini-analyzed
+            if gemini:
+                query = """SELECT * FROM clips WHERE duplicate_of IS NULL
+                    AND ai_score >= ? AND (ai_agent IS NULL OR ai_agent != 'gemini')
+                    ORDER BY ai_score DESC LIMIT ?"""
+            else:
+                query = """SELECT * FROM clips WHERE duplicate_of IS NULL
+                    AND ai_score >= ? ORDER BY ai_score DESC LIMIT ?"""
+            rows = conn.execute(query, (min_score, limit or 100000)).fetchall()
             from .db import _row_to_clip
             pending = [_row_to_clip(r) for r in rows]
             # Load tags
@@ -532,6 +535,12 @@ def analyze(limit, model, stub, use_ffmpeg, quick, gemini, workers, re_analyze, 
                 clip_id, result_or_err, frames = analyze_one(clip)
 
                 if isinstance(result_or_err, Exception):
+                    # Check for quota exhaustion - stop early
+                    from .ai.gemini_analyzer import QuotaExhaustedError
+                    if isinstance(result_or_err, QuotaExhaustedError):
+                        progress.console.print(f"\n[bold red]Quota exhausted![/bold red] {result_or_err}")
+                        progress.console.print(f"Analyzed {completed} clips before quota ran out.")
+                        break
                     errors += 1
                     progress.console.print(f"  [red]#{clip_id} Error: {result_or_err}[/red]")
                 else:

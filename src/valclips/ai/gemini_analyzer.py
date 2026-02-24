@@ -7,6 +7,7 @@ maps, weapons, and provides an impressiveness score.
 
 import base64
 import json
+import re
 import time
 from pathlib import Path
 
@@ -15,9 +16,15 @@ import httpx
 from .base import ClipAnalyzer
 from ..models import AnalysisResult
 
-# Gemini free tier: 15 requests/minute
-RATE_LIMIT_RPM = 15
-MIN_REQUEST_INTERVAL = 60.0 / RATE_LIMIT_RPM  # 4 seconds between requests
+
+class QuotaExhaustedError(Exception):
+    """Raised when the Gemini API daily quota is exhausted."""
+    pass
+
+# Gemini free tier: varies by model. Be conservative.
+RATE_LIMIT_RPM = 6  # Stay well under limits
+MIN_REQUEST_INTERVAL = 60.0 / RATE_LIMIT_RPM  # 10 seconds between requests
+MAX_RETRIES = 5
 
 SYSTEM_PROMPT = """You are an expert Valorant gameplay analyst. You will be shown keyframes from a Valorant gameplay clip recording.
 
@@ -94,10 +101,49 @@ def _build_request(frames: list[Path], model: str = "gemini-2.0-flash") -> dict:
         "contents": [{"parts": parts}],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 1024,
+            "maxOutputTokens": 2048,
             "responseMimeType": "application/json",
         },
     }
+
+
+def _fix_json(text: str) -> str:
+    """Fix common JSON issues from LLM output."""
+    # Remove trailing commas before } or ]
+    text = re.sub(r',\s*([}\]])', r'\1', text)
+    # Quote unquoted property names: { map: "bind" } -> { "map": "bind" }
+    text = re.sub(r'(?<=[{,])\s*(\w+)\s*:', r' "\1":', text)
+    # Replace single-quoted values with double quotes
+    text = re.sub(r":\s*'([^']*)'", r': "\1"', text)
+    # Fix truncated strings by closing open quotes/braces
+    # Count unmatched braces
+    opens = text.count('{') - text.count('}')
+    if opens > 0:
+        # Try to close incomplete JSON
+        # If ends mid-string, close the string
+        if text.rstrip().endswith(('\\', '"')) is False:
+            # Check if we're in a string
+            last_quote = text.rfind('"')
+            if last_quote > 0:
+                before = text[:last_quote]
+                # Count unescaped quotes before
+                q_count = len(re.findall(r'(?<!\\)"', before))
+                if q_count % 2 == 0:
+                    # We're inside an open string, close it
+                    text = text.rstrip() + '"'
+        text = text.rstrip()
+        if not text.endswith('}'):
+            # Remove trailing incomplete key-value pairs
+            last_complete = max(text.rfind('",'), text.rfind('",'), text.rfind('null,'), text.rfind('true,'), text.rfind('false,'))
+            last_num = -1
+            m = list(re.finditer(r':\s*\d+\s*[,}]', text))
+            if m:
+                last_num = m[-1].end() - 1
+            last = max(last_complete, last_num)
+            if last > 0:
+                text = text[:last + 1].rstrip(',')
+            text += '}' * opens
+    return text
 
 
 def _parse_response(text: str) -> dict:
@@ -105,20 +151,44 @@ def _parse_response(text: str) -> dict:
     # Strip markdown code fences if present
     text = text.strip()
     if text.startswith("```"):
+        # Remove language identifier line (```json)
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
     if text.endswith("```"):
         text = text[:-3]
     text = text.strip()
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        # Try to find JSON object in the response
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
-            return json.loads(text[start:end])
-        raise
+    # Try parsing as-is first
+    for attempt in range(2):
+        try:
+            parsed = json.loads(text)
+            break
+        except json.JSONDecodeError:
+            if attempt == 0:
+                # Try fixing common issues
+                text = _fix_json(text)
+                continue
+            # Try to find JSON object in the response
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            if start >= 0 and end > start:
+                snippet = _fix_json(text[start:end])
+                try:
+                    parsed = json.loads(snippet)
+                    break
+                except json.JSONDecodeError:
+                    pass
+            raise
+    else:
+        raise json.JSONDecodeError("Could not parse response", text, 0)
+
+    # Handle case where model returns a list (take first dict)
+    if isinstance(parsed, list):
+        for item in parsed:
+            if isinstance(item, dict):
+                return item
+        return {}
+
+    return parsed
 
 
 class GeminiAnalyzer(ClipAnalyzer):
@@ -127,7 +197,7 @@ class GeminiAnalyzer(ClipAnalyzer):
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-3-flash-preview",
         max_frames: int = 8,
     ):
         self.api_key = api_key
@@ -143,6 +213,46 @@ class GeminiAnalyzer(ClipAnalyzer):
             time.sleep(MIN_REQUEST_INTERVAL - elapsed)
         self._last_request_time = time.time()
 
+    def _call_api(self, frames: list[Path]) -> dict:
+        """Call Gemini API with retry and exponential backoff."""
+        url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
+        payload = _build_request(frames, self.model)
+
+        for attempt in range(MAX_RETRIES):
+            self._rate_limit()
+            try:
+                with httpx.Client(timeout=90.0) as client:
+                    resp = client.post(url, json=payload)
+
+                if resp.status_code == 429:
+                    error_msg = resp.text[:300].lower()
+                    # Distinguish quota exhaustion from rate limiting
+                    if "exceeded your current quota" in error_msg or "billing" in error_msg:
+                        raise QuotaExhaustedError(
+                            "Daily quota exhausted. Quotas reset at midnight Pacific time."
+                        )
+                    wait = (2 ** attempt) * 20  # 20s, 40s, 80s, 160s, 320s
+                    time.sleep(wait)
+                    continue
+
+                if resp.status_code != 200:
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(5)
+                        continue
+                    raise RuntimeError(f"API error {resp.status_code}: {resp.text[:200]}")
+
+                data = resp.json()
+                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                return _parse_response(text)
+
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(10)
+                    continue
+                raise
+
+        raise RuntimeError("Max retries exceeded")
+
     def analyze(self, clip_path: str, keyframes: list[Path]) -> AnalysisResult:
         """Analyze a clip using Gemini Vision."""
         if not keyframes:
@@ -156,34 +266,8 @@ class GeminiAnalyzer(ClipAnalyzer):
         # Limit frames to avoid token limits
         frames = keyframes[:self.max_frames]
 
-        self._rate_limit()
-
-        url = f"{self.base_url}/models/{self.model}:generateContent?key={self.api_key}"
-        payload = _build_request(frames, self.model)
-
         try:
-            with httpx.Client(timeout=60.0) as client:
-                resp = client.post(url, json=payload)
-
-            if resp.status_code == 429:
-                # Rate limited - wait and retry once
-                time.sleep(10)
-                self._rate_limit()
-                with httpx.Client(timeout=60.0) as client:
-                    resp = client.post(url, json=payload)
-
-            if resp.status_code != 200:
-                return AnalysisResult(
-                    agent="gemini",
-                    summary=f"API error: {resp.status_code}",
-                    score=1,
-                    confidence=0.0,
-                )
-
-            data = resp.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            result = _parse_response(text)
-
+            result = self._call_api(frames)
         except Exception as e:
             return AnalysisResult(
                 agent="gemini",

@@ -718,6 +718,94 @@ def get_filter_options(conn: sqlite3.Connection) -> dict:
     }
 
 
+def get_insights(conn: sqlite3.Connection) -> dict:
+    """Get detailed analysis insights for the insights page."""
+    gemini_count = conn.execute(
+        "SELECT COUNT(*) FROM clips WHERE ai_agent = 'gemini' AND duplicate_of IS NULL"
+    ).fetchone()[0]
+    total = conn.execute(
+        "SELECT COUNT(*) FROM clips WHERE duplicate_of IS NULL"
+    ).fetchone()[0]
+
+    # Agent stats with avg score and kills
+    agent_stats = conn.execute("""
+        SELECT ai_player_agent, COUNT(*) as cnt,
+               ROUND(AVG(ai_score), 1) as avg_score,
+               ROUND(AVG(ai_kills), 1) as avg_kills,
+               SUM(ai_kills) as total_kills,
+               SUM(CASE WHEN ai_is_ace = 1 THEN 1 ELSE 0 END) as aces
+        FROM clips WHERE ai_agent = 'gemini' AND ai_player_agent IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_player_agent ORDER BY cnt DESC
+    """).fetchall()
+
+    # Map stats
+    map_stats = conn.execute("""
+        SELECT ai_map, COUNT(*) as cnt,
+               ROUND(AVG(ai_score), 1) as avg_score,
+               ROUND(AVG(ai_kills), 1) as avg_kills,
+               SUM(CASE WHEN ai_round_outcome = 'win' THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN ai_round_outcome = 'loss' THEN 1 ELSE 0 END) as losses
+        FROM clips WHERE ai_agent = 'gemini' AND ai_map IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_map ORDER BY cnt DESC
+    """).fetchall()
+
+    # Weapon stats
+    weapon_stats = conn.execute("""
+        SELECT ai_weapon, COUNT(*) as cnt,
+               ROUND(AVG(ai_score), 1) as avg_score,
+               ROUND(AVG(ai_kills), 1) as avg_kills,
+               SUM(ai_kills) as total_kills
+        FROM clips WHERE ai_agent = 'gemini' AND ai_weapon IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_weapon ORDER BY cnt DESC
+    """).fetchall()
+
+    # Highlight type distribution
+    type_stats = conn.execute("""
+        SELECT ai_highlight_type, COUNT(*) as cnt, ROUND(AVG(ai_score), 1) as avg_score
+        FROM clips WHERE ai_agent = 'gemini' AND ai_highlight_type IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_highlight_type ORDER BY cnt DESC
+    """).fetchall()
+
+    # Kill distribution
+    kill_dist = conn.execute("""
+        SELECT ai_kills, COUNT(*) as cnt
+        FROM clips WHERE ai_agent = 'gemini' AND ai_kills IS NOT NULL AND duplicate_of IS NULL
+        GROUP BY ai_kills ORDER BY ai_kills
+    """).fetchall()
+
+    # Overall gameplay stats
+    totals = conn.execute("""
+        SELECT
+            SUM(ai_kills) as total_kills,
+            SUM(ai_deaths) as total_deaths,
+            SUM(CASE WHEN ai_is_ace = 1 THEN 1 ELSE 0 END) as total_aces,
+            SUM(CASE WHEN ai_clutch_type IS NOT NULL THEN 1 ELSE 0 END) as total_clutches,
+            SUM(CASE WHEN ai_round_outcome = 'win' THEN 1 ELSE 0 END) as wins,
+            SUM(CASE WHEN ai_round_outcome = 'loss' THEN 1 ELSE 0 END) as losses,
+            ROUND(AVG(ai_score), 1) as avg_score,
+            MAX(ai_score) as max_score
+        FROM clips WHERE ai_agent = 'gemini' AND duplicate_of IS NULL
+    """).fetchone()
+
+    return {
+        "analyzed": gemini_count,
+        "total": total,
+        "agent_stats": [dict(r) for r in agent_stats],
+        "map_stats": [dict(r) for r in map_stats],
+        "weapon_stats": [dict(r) for r in weapon_stats],
+        "type_stats": [dict(r) for r in type_stats],
+        "kill_distribution": [dict(r) for r in kill_dist],
+        "total_kills": totals["total_kills"] or 0,
+        "total_deaths": totals["total_deaths"] or 0,
+        "total_aces": totals["total_aces"] or 0,
+        "total_clutches": totals["total_clutches"] or 0,
+        "wins": totals["wins"] or 0,
+        "losses": totals["losses"] or 0,
+        "avg_score": totals["avg_score"] or 0,
+        "max_score": totals["max_score"] or 0,
+    }
+
+
 def get_existing_paths(conn: sqlite3.Connection) -> dict[str, int]:
     """Return {file_path: file_size_bytes} for all indexed clips."""
     rows = conn.execute(

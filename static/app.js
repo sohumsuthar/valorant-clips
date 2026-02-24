@@ -131,19 +131,35 @@ async function loadClips() {
             : '-';
         name.textContent = clip.filename;
 
-        const parts = [];
-        if (clip.ai_kills) parts.push(`${clip.ai_kills} kill${clip.ai_kills !== 1 ? 's' : ''}`);
-        if (clip.ai_is_ace) parts.push('ACE');
-        if (clip.ai_clutch_type) parts.push(clip.ai_clutch_type);
-        if (clip.ai_highlight_type && !clip.ai_clutch_type) parts.push(clip.ai_highlight_type);
-        if (clip.ai_player_agent) parts.push(clip.ai_player_agent);
-        if (clip.ai_map) parts.push(clip.ai_map);
-        if (clip.ai_weapon) parts.push(clip.ai_weapon);
-        if (!parts.length) {
+        // Build colored pill badges for AI data, fallback to plain text
+        const hasAI = clip.ai_kills || clip.ai_is_ace || clip.ai_clutch_type ||
+                       clip.ai_player_agent || clip.ai_map || clip.ai_weapon;
+        if (hasAI) {
+            meta.innerHTML = '';
+            const pills = document.createElement('div');
+            pills.className = 'card-pills';
+            const addPill = (text, cls) => {
+                const pill = document.createElement('span');
+                pill.className = `card-pill ${cls}`;
+                pill.textContent = text;
+                pills.appendChild(pill);
+            };
+            if (clip.ai_kills) addPill(`${clip.ai_kills}K`, 'kills');
+            if (clip.ai_is_ace) addPill('ACE', 'ace');
+            if (clip.ai_clutch_type) addPill(clip.ai_clutch_type, 'clutch');
+            if (clip.ai_highlight_type && clip.ai_highlight_type !== 'regular-round' &&
+                clip.ai_highlight_type !== 'non-gameplay')
+                addPill(clip.ai_highlight_type, 'type');
+            if (clip.ai_player_agent) addPill(clip.ai_player_agent, 'agent');
+            if (clip.ai_map) addPill(clip.ai_map, 'map');
+            if (clip.ai_weapon) addPill(clip.ai_weapon, 'weapon');
+            meta.appendChild(pills);
+        } else {
+            const parts = [];
             if (clip.width && clip.height) parts.push(`${clip.width}x${clip.height}`);
             if (clip.file_size_bytes) parts.push(formatBytes(clip.file_size_bytes));
+            meta.textContent = parts.join(' | ');
         }
-        meta.textContent = parts.join(' | ');
 
         grid.appendChild(card);
     }

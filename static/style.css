@@ -373,6 +373,31 @@
     opacity: 0.5;
 }
 
+/* Card metadata pills */
+.card-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 4px;
+}
+
+.card-pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.card-pill.kills { background: #ef4444; }
+.card-pill.ace { background: #ff4655; text-transform: uppercase; }
+.card-pill.clutch { background: #8b5cf6; }
+.card-pill.agent { background: #6366f1; }
+.card-pill.map { background: #3b82f6; }
+.card-pill.weapon { background: #555; }
+.card-pill.type { background: #059669; }
+
 /* Pagination */
 .pagination {
     display: flex;
@@ -635,6 +660,48 @@
     padding: 0 0.5rem 0.4rem;
     font-size: 0.65rem;
     opacity: 0.5;
+}
+
+/* Re-analyze button */
+.reanalyze-btn {
+    width: 100%;
+    margin-top: 0.75rem;
+    padding: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--val-red);
+    background: transparent;
+    color: var(--val-red);
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s, color 0.15s;
+}
+
+.reanalyze-btn:hover:not(:disabled) {
+    background: var(--val-red);
+    color: #fff;
+}
+
+.reanalyze-btn:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.reanalyze-status {
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    padding: 0.4rem;
+    border-radius: 6px;
+    min-height: 0;
+}
+
+.reanalyze-status.success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.reanalyze-status.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
 }
 
 /* Gallery score overlay */

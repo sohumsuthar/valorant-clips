@@ -141,6 +141,12 @@
             </tbody>
         </table>
         {% endif %}
+
+        <!-- Re-analyze button -->
+        <button id="reanalyze-btn" class="reanalyze-btn" data-clip-id="{{ clip.id }}">
+            {% if clip.ai_agent %}Re-analyze with Gemini{% else %}Analyze with Gemini{% endif %}
+        </button>
+        <div id="reanalyze-status" class="reanalyze-status"></div>
     </aside>
 </div>
 
@@ -172,7 +178,6 @@
 <script>
 // Keyboard shortcuts for clip detail page
 document.addEventListener('keydown', (e) => {
-    // Don't trigger when typing in inputs
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
     if (e.key === 'ArrowLeft' || e.key === 'j') {
@@ -182,12 +187,43 @@ document.addEventListener('keydown', (e) => {
         const next = document.getElementById('next-clip');
         if (next) next.click();
     } else if (e.key === ' ' || e.key === 'p') {
-        // Space or P to toggle play/pause
         e.preventDefault();
         const video = document.getElementById('clip-player');
         if (video) video.paused ? video.play() : video.pause();
     }
 });
+
+// Re-analyze button
+const reanalyzeBtn = document.getElementById('reanalyze-btn');
+if (reanalyzeBtn) {
+    reanalyzeBtn.addEventListener('click', async () => {
+        const clipId = reanalyzeBtn.dataset.clipId;
+        const status = document.getElementById('reanalyze-status');
+        reanalyzeBtn.disabled = true;
+        reanalyzeBtn.textContent = 'Analyzing...';
+        status.textContent = '';
+        status.className = 'reanalyze-status';
+        try {
+            const resp = await fetch(`/api/clips/${clipId}/analyze`, { method: 'POST' });
+            const data = await resp.json();
+            if (resp.ok) {
+                status.textContent = `Score: ${data.score}/10 - ${data.summary}`;
+                status.classList.add('success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                status.textContent = data.detail || 'Analysis failed';
+                status.classList.add('error');
+                reanalyzeBtn.disabled = false;
+                reanalyzeBtn.textContent = 'Retry Analysis';
+            }
+        } catch (err) {
+            status.textContent = 'Network error';
+            status.classList.add('error');
+            reanalyzeBtn.disabled = false;
+            reanalyzeBtn.textContent = 'Retry Analysis';
+        }
+    });
+}
 </script>
 
 {% endblock %}
