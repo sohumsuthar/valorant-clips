@@ -82,6 +82,17 @@ if sys.platform == "win32":
         ]
         SHARES["nvidia"] = _nvidia
 
+# Auto-detect FFmpeg/FFprobe on Windows (winget installs to a deep path)
+if sys.platform == "win32":
+    import glob as _glob
+    _winget_pattern = os.path.expandvars(
+        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\ffmpeg-*\bin"
+    )
+    for _bin_dir in _glob.glob(_winget_pattern):
+        if os.path.isfile(os.path.join(_bin_dir, "ffprobe.exe")):
+            os.environ["PATH"] = _bin_dir + ";" + os.environ.get("PATH", "")
+            break
+
 FFPROBE_TIMEOUT = 30  # seconds
 BATCH_SIZE = 50
 DEFAULT_PAGE_SIZE = 50
