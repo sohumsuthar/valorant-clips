@@ -16,13 +16,13 @@
 </div>
 
 <div class="clip-title-row">
-    <h2>{{ clip.filename }}</h2>
+    <h2>{{ clip.filename | format_clip_name }}</h2>
     {% if clip.ai_score %}
     <span class="score-pill score-{{ clip.ai_score }}">{{ clip.ai_score }}/10</span>
     {% endif %}
 </div>
 
-{% if clip.ai_score or clip.ai_map or clip.ai_highlight_type %}
+{% if clip.ai_agent %}
 <div class="clip-analysis-bar">
     {% if clip.ai_highlight_type %}
     <span class="highlight-pill">{{ clip.ai_highlight_type }}</span>
@@ -102,7 +102,7 @@
         </form>
 
         <!-- Analysis Details -->
-        {% if clip.ai_agent %}
+        {% if clip.ai_analyzed_at %}
         <h4>Analysis</h4>
         <table>
             <tbody>
@@ -161,11 +161,11 @@
             {% else %}
             <div class="no-thumb">#{{ r.id }}</div>
             {% endif %}
-            {% if r.ai_score and r.ai_score >= 5 %}
+            {% if r.ai_score %}
             <span class="card-score score-{{ r.ai_score }}">{{ r.ai_score }}/10</span>
             {% endif %}
         </div>
-        <span class="related-name">{{ r.filename[:35] }}</span>
+        <span class="related-name">{{ r.filename | format_clip_name }}</span>
         <span class="related-meta">
             {% if r.duration_seconds %}{{ "%.0f"|format(r.duration_seconds) }}s{% endif %}
             {% if r.recorded_at %} | {{ r.recorded_at.strftime('%m/%d') }}{% endif %}

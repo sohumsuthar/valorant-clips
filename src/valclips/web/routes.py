@@ -1,6 +1,7 @@
 """API + page routes + video streaming proxy."""
 
 import os
+import re
 import mimetypes
 from pathlib import Path
 
@@ -18,6 +19,30 @@ from ..db import (
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
+
+def _format_clip_name(filename: str) -> str:
+    """Clean up Valorant clip filenames for display."""
+    # DVR: "Valorant YYYY.MM.DD - HH.MM.SS.NN.DVR.mp4"
+    m = re.match(
+        r"Valorant\s+(\d{4})\.(\d{2})\.(\d{2})\s*-\s*(\d{2})\.(\d{2})\.\d+\.\d+\.DVR\.mp4",
+        filename, re.IGNORECASE,
+    )
+    if m:
+        y, mo, d, h, mi = m.groups()
+        return f"DVR {y}-{mo}-{d} {h}:{mi}"
+    # Replay: "VALORANT_replay_YYYY.MM.DD-HH.MM.mp4"
+    m = re.match(
+        r"VALORANT_replay_(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.mp4",
+        filename, re.IGNORECASE,
+    )
+    if m:
+        y, mo, d, h, mi = m.groups()
+        return f"Replay {y}-{mo}-{d} {h}:{mi}"
+    return filename.removesuffix(".mp4").removesuffix(".MP4")
+
+
+templates.env.filters["format_clip_name"] = _format_clip_name
 
 
 # ---- HTML Pages ----

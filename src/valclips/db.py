@@ -720,61 +720,63 @@ def get_filter_options(conn: sqlite3.Connection) -> dict:
 
 def get_insights(conn: sqlite3.Connection) -> dict:
     """Get detailed analysis insights for the insights page."""
-    gemini_count = conn.execute(
-        "SELECT COUNT(*) FROM clips WHERE ai_agent = 'gemini' AND duplicate_of IS NULL"
+    analyzed_count = conn.execute(
+        "SELECT COUNT(*) FROM clips WHERE ai_analyzed_at IS NOT NULL AND duplicate_of IS NULL"
     ).fetchone()[0]
     total = conn.execute(
         "SELECT COUNT(*) FROM clips WHERE duplicate_of IS NULL"
     ).fetchone()[0]
 
+    _where = "ai_analyzed_at IS NOT NULL AND duplicate_of IS NULL"
+
     # Agent stats with avg score and kills
-    agent_stats = conn.execute("""
+    agent_stats = conn.execute(f"""
         SELECT ai_player_agent, COUNT(*) as cnt,
                ROUND(AVG(ai_score), 1) as avg_score,
                ROUND(AVG(ai_kills), 1) as avg_kills,
                SUM(ai_kills) as total_kills,
                SUM(CASE WHEN ai_is_ace = 1 THEN 1 ELSE 0 END) as aces
-        FROM clips WHERE ai_agent = 'gemini' AND ai_player_agent IS NOT NULL AND duplicate_of IS NULL
+        FROM clips WHERE {_where} AND ai_player_agent IS NOT NULL
         GROUP BY ai_player_agent ORDER BY cnt DESC
     """).fetchall()
 
     # Map stats
-    map_stats = conn.execute("""
+    map_stats = conn.execute(f"""
         SELECT ai_map, COUNT(*) as cnt,
                ROUND(AVG(ai_score), 1) as avg_score,
                ROUND(AVG(ai_kills), 1) as avg_kills,
                SUM(CASE WHEN ai_round_outcome = 'win' THEN 1 ELSE 0 END) as wins,
                SUM(CASE WHEN ai_round_outcome = 'loss' THEN 1 ELSE 0 END) as losses
-        FROM clips WHERE ai_agent = 'gemini' AND ai_map IS NOT NULL AND duplicate_of IS NULL
+        FROM clips WHERE {_where} AND ai_map IS NOT NULL
         GROUP BY ai_map ORDER BY cnt DESC
     """).fetchall()
 
     # Weapon stats
-    weapon_stats = conn.execute("""
+    weapon_stats = conn.execute(f"""
         SELECT ai_weapon, COUNT(*) as cnt,
                ROUND(AVG(ai_score), 1) as avg_score,
                ROUND(AVG(ai_kills), 1) as avg_kills,
                SUM(ai_kills) as total_kills
-        FROM clips WHERE ai_agent = 'gemini' AND ai_weapon IS NOT NULL AND duplicate_of IS NULL
+        FROM clips WHERE {_where} AND ai_weapon IS NOT NULL
         GROUP BY ai_weapon ORDER BY cnt DESC
     """).fetchall()
 
     # Highlight type distribution
-    type_stats = conn.execute("""
+    type_stats = conn.execute(f"""
         SELECT ai_highlight_type, COUNT(*) as cnt, ROUND(AVG(ai_score), 1) as avg_score
-        FROM clips WHERE ai_agent = 'gemini' AND ai_highlight_type IS NOT NULL AND duplicate_of IS NULL
+        FROM clips WHERE {_where} AND ai_highlight_type IS NOT NULL
         GROUP BY ai_highlight_type ORDER BY cnt DESC
     """).fetchall()
 
     # Kill distribution
-    kill_dist = conn.execute("""
+    kill_dist = conn.execute(f"""
         SELECT ai_kills, COUNT(*) as cnt
-        FROM clips WHERE ai_agent = 'gemini' AND ai_kills IS NOT NULL AND duplicate_of IS NULL
+        FROM clips WHERE {_where} AND ai_kills IS NOT NULL
         GROUP BY ai_kills ORDER BY ai_kills
     """).fetchall()
 
     # Overall gameplay stats
-    totals = conn.execute("""
+    totals = conn.execute(f"""
         SELECT
             SUM(ai_kills) as total_kills,
             SUM(ai_deaths) as total_deaths,
@@ -784,11 +786,11 @@ def get_insights(conn: sqlite3.Connection) -> dict:
             SUM(CASE WHEN ai_round_outcome = 'loss' THEN 1 ELSE 0 END) as losses,
             ROUND(AVG(ai_score), 1) as avg_score,
             MAX(ai_score) as max_score
-        FROM clips WHERE ai_agent = 'gemini' AND duplicate_of IS NULL
+        FROM clips WHERE {_where}
     """).fetchone()
 
     return {
-        "analyzed": gemini_count,
+        "analyzed": analyzed_count,
         "total": total,
         "agent_stats": [dict(r) for r in agent_stats],
         "map_stats": [dict(r) for r in map_stats],
