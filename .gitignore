@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.egg
+
+# Database
+clips.db
+clips.db-wal
+clips.db-shm
+
+# Generated assets
+thumbnails/
+top_clips_frames/
+highlights/
+previews/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env

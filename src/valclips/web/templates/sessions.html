@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Sessions - Valorant Clips{% endblock %}
+{% block content %}
+<h2>Gaming Sessions</h2>
+<p>{{ sessions|length }} sessions detected (clips within 30 minutes of each other grouped together).</p>
+
+<table class="sessions-table">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Date</th>
+            <th>Time</th>
+            <th>Clips</th>
+            <th>Duration</th>
+            <th>Best Score</th>
+            <th>Share</th>
+            <th>Best Clip</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for s in sessions %}
+        <tr class="session-row{% if s.best_score and s.best_score >= 7 %} session-highlight{% endif %}">
+            <td>{{ loop.index }}</td>
+            <td>{{ s.date }}</td>
+            <td>{{ s.time }}</td>
+            <td>{{ s.clip_count }}</td>
+            <td>{{ "%.0f"|format(s.total_duration // 60) }}m {{ "%.0f"|format(s.total_duration % 60) }}s</td>
+            <td>
+                {% if s.best_score %}
+                <span class="score-badge score-{{ s.best_score }}">{{ s.best_score }}/10</span>
+                {% else %}-{% endif %}
+            </td>
+            <td>{{ s.share or '-' }}</td>
+            <td>
+                {% if s.best_clip_id %}
+                <a href="/clips/{{ s.best_clip_id }}">{{ (s.best_clip_name or '-')[:35] }}</a>
+                {% else %}-{% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<style>
+.sessions-table { font-size: 0.9rem; }
+.session-row { transition: background 0.15s; }
+.session-row:hover { background: var(--card-bg); }
+.session-highlight { border-left: 3px solid var(--val-red); }
+</style>
+{% endblock %}

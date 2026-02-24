@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}Clip #{{ clip.id }} - {{ clip.filename }}{% endblock %}
+{% block content %}
+
+<div class="clip-nav">
+    <a href="/">&larr; Gallery</a>
+    <div class="clip-nav-arrows">
+        {% if prev_id %}
+        <a href="/clips/{{ prev_id }}" id="prev-clip" title="Previous clip (Left arrow)">&larr; Prev</a>
+        {% endif %}
+        <span class="clip-nav-id">#{{ clip.id }}</span>
+        {% if next_id %}
+        <a href="/clips/{{ next_id }}" id="next-clip" title="Next clip (Right arrow)">Next &rarr;</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="clip-title-row">
+    <h2>{{ clip.filename }}</h2>
+    {% if clip.ai_score %}
+    <span class="score-pill score-{{ clip.ai_score }}">{{ clip.ai_score }}/10</span>
+    {% endif %}
+</div>
+
+{% if clip.ai_score or clip.ai_map or clip.ai_highlight_type %}
+<div class="clip-analysis-bar">
+    {% if clip.ai_highlight_type %}
+    <span class="highlight-pill">{{ clip.ai_highlight_type }}</span>
+    {% endif %}
+    {% if clip.ai_is_ace %}
+    <span class="highlight-pill" style="background:#ff4655">ACE</span>
+    {% endif %}
+    {% if clip.ai_clutch_type %}
+    <span class="highlight-pill" style="background:#8b5cf6">{{ clip.ai_clutch_type }} CLUTCH</span>
+    {% endif %}
+    {% if clip.ai_kills %}
+    <span class="kills-pill">{{ clip.ai_kills }} kill{{ 's' if clip.ai_kills != 1 else '' }}</span>
+    {% endif %}
+    {% if clip.ai_player_agent %}
+    <span class="agent-pill">{{ clip.ai_player_agent }}</span>
+    {% endif %}
+    {% if clip.ai_map %}
+    <span class="map-pill">{{ clip.ai_map }}</span>
+    {% endif %}
+    {% if clip.ai_weapon %}
+    <span class="map-pill" style="background:#666">{{ clip.ai_weapon }}</span>
+    {% endif %}
+    {% if clip.ai_summary %}
+    <span class="summary-text">{{ clip.ai_summary }}</span>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if clip.duplicate_of %}
+<div class="dupe-notice">
+    This clip is a duplicate of <a href="/clips/{{ clip.duplicate_of }}">#{{ clip.duplicate_of }}</a>
+</div>
+{% endif %}
+
+<div class="clip-detail-layout">
+    <!-- Video Player -->
+    <div class="player-wrap">
+        <video controls preload="metadata" id="clip-player">
+            <source src="/api/clips/{{ clip.id }}/stream" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+
+    <!-- Metadata Panel -->
+    <aside class="meta-panel">
+        <h4>Metadata</h4>
+        <table>
+            <tbody>
+                <tr><td>ID</td><td>{{ clip.id }}</td></tr>
+                <tr><td>Recorded</td><td>{{ clip.recorded_at.strftime('%Y-%m-%d %H:%M:%S') if clip.recorded_at else '-' }}</td></tr>
+                <tr><td>Format</td><td>{{ clip.source_format or '-' }}</td></tr>
+                <tr><td>Duration</td><td id="meta-duration" data-seconds="{{ clip.duration_seconds or 0 }}">--</td></tr>
+                <tr><td>Resolution</td><td>{{ '%dx%d' % (clip.width, clip.height) if clip.width else '-' }}</td></tr>
+                <tr><td>FPS</td><td>{{ clip.fps or '-' }}</td></tr>
+                <tr><td>Codec</td><td>{{ clip.codec or '-' }}</td></tr>
+                <tr><td>Size</td><td id="meta-size" data-bytes="{{ clip.file_size_bytes or 0 }}">--</td></tr>
+                <tr><td>Share</td><td>{{ clip.share_name or '-' }}</td></tr>
+                <tr><td>Path</td><td class="path-cell">{{ clip.file_path }}</td></tr>
+            </tbody>
+        </table>
+
+        <!-- Tags -->
+        <h4>Tags</h4>
+        <div id="tag-list" data-clip-id="{{ clip.id }}">
+            {% for t in clip.tags %}
+            <span class="tag-badge">
+                {{ t }}
+                <button class="tag-remove" data-tag="{{ t }}">&times;</button>
+            </span>
+            {% endfor %}
+        </div>
+        <form id="add-tag-form">
+            <div class="grid">
+                <input type="text" id="new-tag" placeholder="Add tag..." />
+                <button type="submit">Add</button>
+            </div>
+        </form>
+
+        <!-- Analysis Details -->
+        {% if clip.ai_agent %}
+        <h4>Analysis</h4>
+        <table>
+            <tbody>
+                {% if clip.ai_score %}
+                <tr><td>Score</td><td><span class="score-badge score-{{ clip.ai_score }}">{{ clip.ai_score }}/10</span></td></tr>
+                {% endif %}
+                {% if clip.ai_kills is not none %}
+                <tr><td>Kills</td><td>{{ clip.ai_kills }}{% if clip.ai_deaths is not none %} / {{ clip.ai_deaths }} deaths{% endif %}</td></tr>
+                {% endif %}
+                {% if clip.ai_is_ace %}
+                <tr><td>Ace</td><td style="color:#ff4655;font-weight:bold">YES</td></tr>
+                {% endif %}
+                {% if clip.ai_clutch_type %}
+                <tr><td>Clutch</td><td>{{ clip.ai_clutch_type }}</td></tr>
+                {% endif %}
+                {% if clip.ai_highlight_type %}
+                <tr><td>Type</td><td>{{ clip.ai_highlight_type }}</td></tr>
+                {% endif %}
+                {% if clip.ai_player_agent %}
+                <tr><td>Agent</td><td>{{ clip.ai_player_agent }}</td></tr>
+                {% endif %}
+                {% if clip.ai_map %}
+                <tr><td>Map</td><td>{{ clip.ai_map }}</td></tr>
+                {% endif %}
+                {% if clip.ai_weapon %}
+                <tr><td>Weapon</td><td>{{ clip.ai_weapon }}</td></tr>
+                {% endif %}
+                {% if clip.ai_round_outcome %}
+                <tr><td>Round</td><td>{{ clip.ai_round_outcome }}</td></tr>
+                {% endif %}
+                <tr><td>Analyzer</td><td>{{ clip.ai_agent }}{% if clip.ai_confidence %} ({{ "%.0f"|format(clip.ai_confidence * 100) }}% conf){% endif %}</td></tr>
+                {% if clip.ai_summary %}
+                <tr><td>Summary</td><td>{{ clip.ai_summary }}</td></tr>
+                {% endif %}
+                <tr><td>Analyzed</td><td>{{ clip.ai_analyzed_at.strftime('%Y-%m-%d %H:%M') if clip.ai_analyzed_at else '-' }}</td></tr>
+            </tbody>
+        </table>
+        {% endif %}
+
+        <!-- Re-analyze button -->
+        <button id="reanalyze-btn" class="reanalyze-btn" data-clip-id="{{ clip.id }}">
+            {% if clip.ai_agent %}Re-analyze with Gemini{% else %}Analyze with Gemini{% endif %}
+        </button>
+        <div id="reanalyze-status" class="reanalyze-status"></div>
+    </aside>
+</div>
+
+{% if related %}
+<h3 class="related-heading">Related Clips</h3>
+<div class="related-scroll">
+    {% for r in related %}
+    <a href="/clips/{{ r.id }}" class="related-card">
+        <div class="related-thumb">
+            {% if r.thumbnail_path %}
+            <img src="/thumbnails/{{ r.thumbnail_path.split('/')[-1] }}" alt="{{ r.filename }}" loading="lazy">
+            {% else %}
+            <div class="no-thumb">#{{ r.id }}</div>
+            {% endif %}
+            {% if r.ai_score and r.ai_score >= 5 %}
+            <span class="card-score score-{{ r.ai_score }}">{{ r.ai_score }}/10</span>
+            {% endif %}
+        </div>
+        <span class="related-name">{{ r.filename[:35] }}</span>
+        <span class="related-meta">
+            {% if r.duration_seconds %}{{ "%.0f"|format(r.duration_seconds) }}s{% endif %}
+            {% if r.recorded_at %} | {{ r.recorded_at.strftime('%m/%d') }}{% endif %}
+        </span>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<script>
+// Keyboard shortcuts for clip detail page
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    if (e.key === 'ArrowLeft' || e.key === 'j') {
+        const prev = document.getElementById('prev-clip');
+        if (prev) prev.click();
+    } else if (e.key === 'ArrowRight' || e.key === 'k') {
+        const next = document.getElementById('next-clip');
+        if (next) next.click();
+    } else if (e.key === ' ' || e.key === 'p') {
+        e.preventDefault();
+        const video = document.getElementById('clip-player');
+        if (video) video.paused ? video.play() : video.pause();
+    }
+});
+
+// Re-analyze button
+const reanalyzeBtn = document.getElementById('reanalyze-btn');
+if (reanalyzeBtn) {
+    reanalyzeBtn.addEventListener('click', async () => {
+        const clipId = reanalyzeBtn.dataset.clipId;
+        const status = document.getElementById('reanalyze-status');
+        reanalyzeBtn.disabled = true;
+        reanalyzeBtn.textContent = 'Analyzing...';
+        status.textContent = '';
+        status.className = 'reanalyze-status';
+        try {
+            const resp = await fetch(`/api/clips/${clipId}/analyze`, { method: 'POST' });
+            const data = await resp.json();
+            if (resp.ok) {
+                status.textContent = `Score: ${data.score}/10 - ${data.summary}`;
+                status.classList.add('success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                status.textContent = data.detail || 'Analysis failed';
+                status.classList.add('error');
+                reanalyzeBtn.disabled = false;
+                reanalyzeBtn.textContent = 'Retry Analysis';
+            }
+        } catch (err) {
+            status.textContent = 'Network error';
+            status.classList.add('error');
+            reanalyzeBtn.disabled = false;
+            reanalyzeBtn.textContent = 'Retry Analysis';
+        }
+    });
+}
+</script>
+
+{% endblock %}
