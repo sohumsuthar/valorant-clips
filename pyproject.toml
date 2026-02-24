@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "valclips"
+version = "0.1.0"
+description = "Valorant clip manager - index, browse, tag, and analyze gameplay recordings"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "rich>=13.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "pydantic>=2.0",
+    "aiofiles>=24.1",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+valclips = "valclips.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/valclips"]

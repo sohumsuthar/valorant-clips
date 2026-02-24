@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Valorant Clips - Gallery{% endblock %}
+{% block content %}
+
+<!-- Stats Bar -->
+<div class="grid" id="stats-bar">
+    <div class="stat-card">
+        <small>Total Clips</small>
+        <strong>{{ stats.total_clips }}</strong>
+    </div>
+    <div class="stat-card">
+        <small>Total Size</small>
+        <strong id="total-size" data-bytes="{{ stats.total_size_bytes }}">--</strong>
+    </div>
+    <div class="stat-card">
+        <small>Duration</small>
+        <strong id="total-duration" data-seconds="{{ stats.total_duration_seconds }}">--</strong>
+    </div>
+    <a href="/sessions" class="stat-card" style="text-decoration:none;color:inherit">
+        <small>Analyzed</small>
+        <strong>{{ stats.analyzed }}</strong>
+    </a>
+    <a href="/top" class="stat-card" style="text-decoration:none;color:inherit">
+        <small>Top Rated</small>
+        <strong>{{ stats.top_rated }}</strong>
+    </a>
+</div>
+
+<!-- Charts Row -->
+<div class="charts-row">
+    <div class="timeline-wrap" style="flex:2">
+        <small class="chart-label">Recording Timeline</small>
+        <div id="timeline-chart" class="timeline-chart"></div>
+    </div>
+    <div class="chart-card" style="flex:1">
+        <small class="chart-label">Score Distribution</small>
+        <div id="score-chart" class="score-chart"></div>
+    </div>
+</div>
+
+<!-- Date Range Quick Filters -->
+<div class="date-range-bar">
+    <button class="date-btn active" data-range="all">All Time</button>
+    <button class="date-btn" data-range="year">Past Year</button>
+    <button class="date-btn" data-range="6mo">Past 6 Months</button>
+    <button class="date-btn" data-range="3mo">Past 3 Months</button>
+    <button class="date-btn" data-range="month">Past Month</button>
+    <button class="date-btn" data-range="week">Past Week</button>
+</div>
+
+<!-- Search + Filters -->
+<div class="grid filter-bar">
+    <div>
+        <input type="search" id="search-input" placeholder="Search clips, maps, summaries..." />
+    </div>
+    <div>
+        <select id="sort-select">
+            <option value="date">Sort by Date</option>
+            <option value="score">Sort by Score</option>
+            <option value="duration">Sort by Duration</option>
+            <option value="size">Sort by Size</option>
+            <option value="name">Sort by Name</option>
+        </select>
+    </div>
+    <div>
+        <select id="share-select">
+            <option value="">All Shares</option>
+            {% for name in stats.by_share %}
+            <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label class="dupe-toggle">
+            <input type="checkbox" id="hide-dupes" checked />
+            Hide duplicates
+        </label>
+    </div>
+</div>
+
+<!-- Advanced Filters -->
+<div class="filter-pills" id="filter-pills">
+    <select id="score-filter" class="pill-select">
+        <option value="">Any Score</option>
+        <option value="9">9+ (Elite)</option>
+        <option value="7">7+ (Great)</option>
+        <option value="5">5+ (Notable)</option>
+        <option value="3">3+ (Average)</option>
+    </select>
+    <select id="type-filter" class="pill-select">
+        <option value="">All Types</option>
+    </select>
+    <select id="map-filter" class="pill-select">
+        <option value="">All Maps</option>
+    </select>
+    <button id="clear-filters" class="pill-btn" style="display:none">Clear Filters</button>
+</div>
+
+<div class="gallery-layout">
+    <!-- Tag sidebar -->
+    <aside class="tag-sidebar">
+        <h4>Tags</h4>
+        <div id="tag-cloud">
+            {% for t in tags %}
+            <a href="#" class="tag-link" data-tag="{{ t.name }}">{{ t.name }} ({{ t.count }})</a>
+            {% endfor %}
+            {% if not tags %}
+            <p><small>No tags yet</small></p>
+            {% endif %}
+        </div>
+    </aside>
+
+    <!-- Clip Grid -->
+    <section class="clip-grid-wrap">
+        <div id="clip-grid" class="clip-grid">
+            <!-- Populated by JS -->
+        </div>
+        <div id="pagination" class="pagination"></div>
+    </section>
+</div>
+
+<template id="clip-card-template">
+    <article class="clip-card" data-id="">
+        <a href="">
+            <div class="thumb-wrap">
+                <img src="" alt="" loading="lazy" />
+                <span class="duration-badge"></span>
+                <span class="dupe-badge" style="display:none">DUPE</span>
+                <span class="card-score" style="display:none"></span>
+            </div>
+            <div class="card-body">
+                <small class="clip-date"></small>
+                <div class="clip-name"></div>
+                <div class="clip-meta"></div>
+            </div>
+        </a>
+    </article>
+</template>
+
+{% endblock %}
