@@ -413,21 +413,39 @@ def previews(limit: int, min_score: int):
 @click.option("--stub", is_flag=True, help="Use stub analyzer (no API key needed).")
 @click.option("--ffmpeg", "use_ffmpeg", is_flag=True, help="Use FFmpeg heuristic analyzer (no API needed).")
 @click.option("--quick", is_flag=True, help="Quick mode: metadata-only scoring (fastest, no ffmpeg).")
+@click.option("--gemini", is_flag=True, help="Use Gemini Vision (needs GEMINI_API_KEY, free tier).")
+@click.option("--workers", "-w", default=1, type=int, help="Parallel workers (Gemini: max 3 for free tier).")
 @click.option("--re-analyze", is_flag=True, help="Re-analyze already analyzed clips.")
-def analyze(limit: int | None, model: str, stub: bool, use_ffmpeg: bool, quick: bool, re_analyze: bool):
+@click.option("--min-score", default=None, type=int, help="Only re-analyze clips with heuristic score >= N.")
+def analyze(limit, model, stub, use_ffmpeg, quick, gemini, workers, re_analyze, min_score):
     """Run AI analysis on clips.
 
-    Default: Claude Vision (needs ANTHROPIC_API_KEY).
-    --ffmpeg: FFmpeg scene-change heuristics (free, slower).
-    --quick: Metadata-only scoring (free, instant).
+    Backends:
+      --gemini:  Gemini Vision (free tier, best accuracy)
+      --ffmpeg:  FFmpeg scene-change heuristics (free, no API)
+      --quick:   Metadata-only scoring (instant, least accurate)
+      (default): Claude Vision (needs ANTHROPIC_API_KEY)
+
+    Multi-worker: Use -w N for parallel analysis (Gemini supports up to 3
+    workers on free tier at 15 RPM).
     """
+    import os
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     from .ai.highlights import get_clip_highlights
     from .db import get_top_clips
-    from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+    from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
 
     if stub:
         from .ai.stub import StubAnalyzer
         analyzer = StubAnalyzer()
+    elif gemini:
+        from .ai.gemini_analyzer import GeminiAnalyzer
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            console.print("[red]Set GEMINI_API_KEY environment variable.[/red]")
+            console.print("Get a free key at: https://aistudio.google.com/apikey")
+            raise SystemExit(1)
+        analyzer = GeminiAnalyzer(api_key=api_key)
     elif use_ffmpeg or quick:
         from .ai.ffmpeg_analyzer import FFmpegHeuristicAnalyzer
         analyzer = FFmpegHeuristicAnalyzer(quick=quick)
@@ -440,7 +458,22 @@ def analyze(limit: int | None, model: str, stub: bool, use_ffmpeg: bool, quick: 
             raise SystemExit(1)
 
     with get_connection() as conn:
-        if re_analyze:
+        if re_analyze and min_score:
+            # Re-analyze clips that already have a heuristic score >= threshold
+            rows = conn.execute(
+                """SELECT * FROM clips WHERE duplicate_of IS NULL
+                AND ai_score >= ? ORDER BY ai_score DESC LIMIT ?""",
+                (min_score, limit or 100000),
+            ).fetchall()
+            from .db import _row_to_clip
+            pending = [_row_to_clip(r) for r in rows]
+            # Load tags
+            for clip in pending:
+                tags = conn.execute(
+                    "SELECT name FROM tags WHERE clip_id = ?", (clip.id,)
+                ).fetchall()
+                clip.tags = [t["name"] for t in tags]
+        elif re_analyze:
             result = list_clips(conn, page=1, page_size=limit or 100000, hide_dupes=True)
             pending = result.clips
         else:
@@ -450,11 +483,40 @@ def analyze(limit: int | None, model: str, stub: bool, use_ffmpeg: bool, quick: 
         console.print("All clips have been analyzed.")
         return
 
-    console.print(f"Analyzing {len(pending)} clips with [bold]{analyzer.__class__.__name__}[/bold]...")
-    errors = 0
     is_heuristic = use_ffmpeg or quick
+    is_vision = gemini or (not is_heuristic and not stub)
+    actual_workers = min(workers, 3) if gemini else workers
+
+    console.print(
+        f"Analyzing {len(pending)} clips with [bold]{analyzer.__class__.__name__}[/bold] "
+        f"({actual_workers} worker{'s' if actual_workers > 1 else ''})..."
+    )
+    errors = 0
+    completed = 0
+
+    def analyze_one(clip):
+        """Analyze a single clip. Returns (clip_id, AnalysisResult, frames_to_clean)."""
+        frames = []
+        try:
+            if is_heuristic:
+                from .ai.ffmpeg_analyzer import FFmpegHeuristicAnalyzer
+                assert isinstance(analyzer, FFmpegHeuristicAnalyzer)
+                ar = analyzer.analyze_with_metadata(
+                    clip.file_path, keyframes=[],
+                    duration=clip.duration_seconds,
+                    directory=clip.directory, tags=clip.tags,
+                )
+            else:
+                segments, frames = get_clip_highlights(
+                    clip.file_path, duration=clip.duration_seconds, max_frames=8,
+                )
+                ar = analyzer.analyze(clip.file_path, frames)
+            return clip.id, ar, frames
+        except Exception as e:
+            return clip.id, e, frames
 
     with Progress(
+        SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
@@ -463,62 +525,85 @@ def analyze(limit: int | None, model: str, stub: bool, use_ffmpeg: bool, quick: 
     ) as progress:
         task = progress.add_task("Analyzing", total=len(pending))
 
-        for i, clip in enumerate(pending, 1):
-            frames = []
-            try:
+        if actual_workers <= 1:
+            # Single-threaded mode
+            for i, clip in enumerate(pending, 1):
                 progress.update(task, description=f"[{i}/{len(pending)}] #{clip.id}")
+                clip_id, result_or_err, frames = analyze_one(clip)
 
-                if is_heuristic:
-                    # FFmpeg/quick analyzer uses metadata-aware method
-                    from .ai.ffmpeg_analyzer import FFmpegHeuristicAnalyzer
-                    assert isinstance(analyzer, FFmpegHeuristicAnalyzer)
-                    ar = analyzer.analyze_with_metadata(
-                        clip.file_path,
-                        keyframes=[],
-                        duration=clip.duration_seconds,
-                        directory=clip.directory,
-                        tags=clip.tags,
-                    )
+                if isinstance(result_or_err, Exception):
+                    errors += 1
+                    progress.console.print(f"  [red]#{clip_id} Error: {result_or_err}[/red]")
                 else:
-                    # Vision analyzer needs frames
-                    segments, frames = get_clip_highlights(
-                        clip.file_path,
-                        duration=clip.duration_seconds,
-                        max_frames=8,
-                    )
-                    ar = analyzer.analyze(clip.file_path, frames)
+                    ar = result_or_err
+                    with get_connection() as conn:
+                        update_clip_ai(
+                            conn, clip_id, agent=ar.agent,
+                            map_name=ar.map_name, summary=ar.summary,
+                            tags=ar.tags, score=ar.score, kills=ar.kills,
+                            highlight_type=ar.highlight_type,
+                            clutch_type=ar.clutch_type, weapon=ar.weapon,
+                            player_agent=ar.player_agent, deaths=ar.deaths,
+                            is_ace=ar.is_ace,
+                            round_outcome=ar.round_outcome,
+                            confidence=ar.confidence,
+                        )
+                    completed += 1
+                    if ar.score and ar.score >= 5:
+                        info = f"Score: {ar.score}/10"
+                        if ar.kills: info += f" | {ar.kills}K"
+                        if ar.is_ace: info += " ACE"
+                        if ar.clutch_type: info += f" {ar.clutch_type}"
+                        info += f" | {ar.highlight_type or 'regular'}"
+                        if ar.player_agent: info += f" | {ar.player_agent}"
+                        if ar.map_name: info += f" | {ar.map_name}"
+                        progress.console.print(f"  [bold yellow]#{clip_id}[/bold yellow] {info}")
 
-                with get_connection() as conn:
-                    update_clip_ai(
-                        conn, clip.id,
-                        agent=ar.agent,
-                        map_name=ar.map_name,
-                        summary=ar.summary,
-                        tags=ar.tags,
-                        score=ar.score,
-                        kills=ar.kills,
-                        highlight_type=ar.highlight_type,
-                    )
-
-                if ar.score and ar.score >= 6:
-                    progress.console.print(
-                        f"  [bold yellow]#{clip.id}[/bold yellow] Score: {ar.score}/10 | "
-                        f"{ar.highlight_type or 'regular'} | {ar.summary}"
-                    )
-
-            except Exception as e:
-                errors += 1
-                progress.console.print(f"  [red]#{clip.id} Error: {e}[/red]")
-
-            finally:
                 for f in frames:
-                    try:
-                        f.unlink(missing_ok=True)
-                    except Exception:
-                        pass
+                    try: f.unlink(missing_ok=True)
+                    except Exception: pass
                 progress.advance(task)
+        else:
+            # Multi-worker parallel mode
+            with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+                futures = {executor.submit(analyze_one, clip): clip for clip in pending}
 
-    console.print(f"\n[green]Analysis complete![/green] ({errors} errors)")
+                for future in as_completed(futures):
+                    clip = futures[future]
+                    clip_id, result_or_err, frames = future.result()
+
+                    if isinstance(result_or_err, Exception):
+                        errors += 1
+                        progress.console.print(f"  [red]#{clip_id} Error: {result_or_err}[/red]")
+                    else:
+                        ar = result_or_err
+                        with get_connection() as conn:
+                            update_clip_ai(
+                                conn, clip_id, agent=ar.agent,
+                                map_name=ar.map_name, summary=ar.summary,
+                                tags=ar.tags, score=ar.score, kills=ar.kills,
+                                highlight_type=ar.highlight_type,
+                                clutch_type=ar.clutch_type, weapon=ar.weapon,
+                                player_agent=ar.player_agent, deaths=ar.deaths,
+                                is_ace=ar.is_ace,
+                                round_outcome=ar.round_outcome,
+                                confidence=ar.confidence,
+                            )
+                        completed += 1
+                        if ar.score and ar.score >= 5:
+                            info = f"Score: {ar.score}/10"
+                            if ar.kills: info += f" | {ar.kills}K"
+                            if ar.is_ace: info += " ACE"
+                            if ar.clutch_type: info += f" {ar.clutch_type}"
+                            info += f" | {ar.highlight_type or 'regular'}"
+                            progress.console.print(f"  [bold yellow]#{clip_id}[/bold yellow] {info}")
+
+                    for f in frames:
+                        try: f.unlink(missing_ok=True)
+                        except Exception: pass
+                    progress.advance(task)
+
+    console.print(f"\n[green]Analysis complete![/green] {completed} analyzed, {errors} errors")
 
     # Show top clips
     with get_connection() as conn:
@@ -528,19 +613,25 @@ def analyze(limit: int | None, model: str, stub: bool, use_ffmpeg: bool, quick: 
         table.add_column("Rank", width=4)
         table.add_column("ID", style="dim", width=6)
         table.add_column("Score", width=5)
+        table.add_column("Kills", width=5)
         table.add_column("Type", width=15)
-        table.add_column("Date", width=10)
-        table.add_column("Dir", width=30)
+        table.add_column("Agent", width=10)
+        table.add_column("Map", width=10)
         table.add_column("Summary")
 
         for rank, c in enumerate(top, 1):
-            date_str = c.recorded_at.strftime("%Y-%m-%d") if c.recorded_at else "-"
-            short_dir = c.directory.split("/")[-1] if c.directory else "-"
+            kills_str = str(c.ai_kills) if c.ai_kills else "-"
+            if c.ai_is_ace:
+                kills_str += " ACE"
+            if c.ai_clutch_type:
+                kills_str += f" {c.ai_clutch_type}"
             table.add_row(
                 str(rank), str(c.id),
                 f"[bold]{c.ai_score}[/bold]" if c.ai_score else "-",
+                kills_str,
                 c.ai_highlight_type or "-",
-                date_str, short_dir,
+                c.ai_player_agent or "-",
+                c.ai_map or "-",
                 (c.ai_summary or "-")[:50],
             )
         console.print(table)

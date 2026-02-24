@@ -57,6 +57,7 @@
         <select id="sort-select">
             <option value="date">Sort by Date</option>
             <option value="score">Sort by Score</option>
+            <option value="kills">Sort by Kills</option>
             <option value="duration">Sort by Duration</option>
             <option value="size">Sort by Size</option>
             <option value="name">Sort by Name</option>
@@ -87,12 +88,32 @@
         <option value="5">5+ (Notable)</option>
         <option value="3">3+ (Average)</option>
     </select>
+    <select id="kills-filter" class="pill-select">
+        <option value="">Any Kills</option>
+        <option value="5">5+ (Ace)</option>
+        <option value="4">4+</option>
+        <option value="3">3+</option>
+        <option value="2">2+</option>
+    </select>
     <select id="type-filter" class="pill-select">
         <option value="">All Types</option>
+    </select>
+    <select id="clutch-filter" class="pill-select">
+        <option value="">All Clutches</option>
+    </select>
+    <select id="agent-filter" class="pill-select">
+        <option value="">All Agents</option>
+    </select>
+    <select id="weapon-filter" class="pill-select">
+        <option value="">All Weapons</option>
     </select>
     <select id="map-filter" class="pill-select">
         <option value="">All Maps</option>
     </select>
+    <label class="pill-toggle">
+        <input type="checkbox" id="aces-only" />
+        Aces Only
+    </label>
     <button id="clear-filters" class="pill-btn" style="display:none">Clear Filters</button>
 </div>
 

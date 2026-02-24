@@ -241,6 +241,20 @@
     color: #fff;
 }
 
+.pill-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.pill-toggle input {
+    margin: 0;
+    width: auto;
+}
+
 /* Gallery layout */
 .gallery-layout {
     display: grid;

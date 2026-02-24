@@ -27,14 +27,23 @@
     {% if clip.ai_highlight_type %}
     <span class="highlight-pill">{{ clip.ai_highlight_type }}</span>
     {% endif %}
-    {% if clip.ai_map %}
-    <span class="map-pill">{{ clip.ai_map }}</span>
+    {% if clip.ai_is_ace %}
+    <span class="highlight-pill" style="background:#ff4655">ACE</span>
     {% endif %}
-    {% if clip.ai_agent and clip.ai_agent != 'ffmpeg-heuristic' %}
-    <span class="agent-pill">{{ clip.ai_agent }}</span>
+    {% if clip.ai_clutch_type %}
+    <span class="highlight-pill" style="background:#8b5cf6">{{ clip.ai_clutch_type }} CLUTCH</span>
     {% endif %}
     {% if clip.ai_kills %}
     <span class="kills-pill">{{ clip.ai_kills }} kill{{ 's' if clip.ai_kills != 1 else '' }}</span>
+    {% endif %}
+    {% if clip.ai_player_agent %}
+    <span class="agent-pill">{{ clip.ai_player_agent }}</span>
+    {% endif %}
+    {% if clip.ai_map %}
+    <span class="map-pill">{{ clip.ai_map }}</span>
+    {% endif %}
+    {% if clip.ai_weapon %}
+    <span class="map-pill" style="background:#666">{{ clip.ai_weapon }}</span>
     {% endif %}
     {% if clip.ai_summary %}
     <span class="summary-text">{{ clip.ai_summary }}</span>
@@ -100,16 +109,31 @@
                 {% if clip.ai_score %}
                 <tr><td>Score</td><td><span class="score-badge score-{{ clip.ai_score }}">{{ clip.ai_score }}/10</span></td></tr>
                 {% endif %}
+                {% if clip.ai_kills is not none %}
+                <tr><td>Kills</td><td>{{ clip.ai_kills }}{% if clip.ai_deaths is not none %} / {{ clip.ai_deaths }} deaths{% endif %}</td></tr>
+                {% endif %}
+                {% if clip.ai_is_ace %}
+                <tr><td>Ace</td><td style="color:#ff4655;font-weight:bold">YES</td></tr>
+                {% endif %}
+                {% if clip.ai_clutch_type %}
+                <tr><td>Clutch</td><td>{{ clip.ai_clutch_type }}</td></tr>
+                {% endif %}
                 {% if clip.ai_highlight_type %}
                 <tr><td>Type</td><td>{{ clip.ai_highlight_type }}</td></tr>
+                {% endif %}
+                {% if clip.ai_player_agent %}
+                <tr><td>Agent</td><td>{{ clip.ai_player_agent }}</td></tr>
                 {% endif %}
                 {% if clip.ai_map %}
                 <tr><td>Map</td><td>{{ clip.ai_map }}</td></tr>
                 {% endif %}
-                {% if clip.ai_kills %}
-                <tr><td>Kills</td><td>{{ clip.ai_kills }}</td></tr>
+                {% if clip.ai_weapon %}
+                <tr><td>Weapon</td><td>{{ clip.ai_weapon }}</td></tr>
                 {% endif %}
-                <tr><td>Analyzer</td><td>{{ clip.ai_agent }}</td></tr>
+                {% if clip.ai_round_outcome %}
+                <tr><td>Round</td><td>{{ clip.ai_round_outcome }}</td></tr>
+                {% endif %}
+                <tr><td>Analyzer</td><td>{{ clip.ai_agent }}{% if clip.ai_confidence %} ({{ "%.0f"|format(clip.ai_confidence * 100) }}% conf){% endif %}</td></tr>
                 {% if clip.ai_summary %}
                 <tr><td>Summary</td><td>{{ clip.ai_summary }}</td></tr>
                 {% endif %}

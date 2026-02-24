@@ -66,6 +66,11 @@ def api_list_clips(
     score_min: int | None = None,
     highlight_type: str | None = None,
     map_name: str | None = None,
+    clutch_type: str | None = None,
+    weapon: str | None = None,
+    player_agent: str | None = None,
+    aces_only: bool = Query(False),
+    kills_min: int | None = None,
 ):
     with get_connection() as conn:
         result = list_clips(
@@ -73,7 +78,9 @@ def api_list_clips(
             tag=tag, date_from=date_from, date_to=date_to,
             share=share, search=search, hide_dupes=hide_dupes,
             score_min=score_min, highlight_type=highlight_type,
-            map_name=map_name,
+            map_name=map_name, clutch_type=clutch_type,
+            weapon=weapon, player_agent=player_agent,
+            aces_only=aces_only, kills_min=kills_min,
         )
     return result.model_dump()
 
