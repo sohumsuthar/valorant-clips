@@ -57,8 +57,12 @@ def extract_share_name(file_path: str, share_roots: dict[str, object]) -> str | 
 
 
 def extract_directory(file_path: str) -> str:
-    """Get the parent directory. Works with both / and \\ separators."""
-    return str(Path(file_path).parent)
+    """Get the parent directory. Works with both / and \\ separators.
+
+    Always returns forward-slash paths for consistent DB storage across OSes.
+    """
+    parent = str(Path(file_path).parent)
+    return parent.replace("\\", "/")
 
 
 def is_valorant_clip(filename: str) -> bool:

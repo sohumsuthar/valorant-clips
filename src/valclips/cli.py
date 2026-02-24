@@ -413,16 +413,19 @@ def previews(limit: int, min_score: int):
 @click.option("--stub", is_flag=True, help="Use stub analyzer (no API key needed).")
 @click.option("--ffmpeg", "use_ffmpeg", is_flag=True, help="Use FFmpeg heuristic analyzer (no API needed).")
 @click.option("--quick", is_flag=True, help="Quick mode: metadata-only scoring (fastest, no ffmpeg).")
+@click.option("--deep", is_flag=True, help="Deep FFmpeg mode: adds audio + motion analysis (slower, more accurate).")
 @click.option("--gemini", is_flag=True, help="Use Gemini Vision (needs GEMINI_API_KEY, free tier).")
 @click.option("--workers", "-w", default=1, type=int, help="Parallel workers (Gemini: max 3 for free tier).")
 @click.option("--re-analyze", is_flag=True, help="Re-analyze already analyzed clips.")
 @click.option("--min-score", default=None, type=int, help="Only re-analyze clips with heuristic score >= N.")
-def analyze(limit, model, stub, use_ffmpeg, quick, gemini, workers, re_analyze, min_score):
+@click.option("--share", "share_name", default=None, help="Only analyze clips from a specific share.")
+def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, workers, re_analyze, min_score, share_name):
     """Run AI analysis on clips.
 
     Backends:
       --gemini:  Gemini Vision (free tier, best accuracy)
       --ffmpeg:  FFmpeg scene-change heuristics (free, no API)
+      --deep:    FFmpeg + audio + motion analysis (slower, more accurate)
       --quick:   Metadata-only scoring (instant, least accurate)
       (default): Claude Vision (needs ANTHROPIC_API_KEY)
 
@@ -446,9 +449,9 @@ def analyze(limit, model, stub, use_ffmpeg, quick, gemini, workers, re_analyze, 
             console.print("Get a free key at: https://aistudio.google.com/apikey")
             raise SystemExit(1)
         analyzer = GeminiAnalyzer(api_key=api_key)
-    elif use_ffmpeg or quick:
+    elif use_ffmpeg or quick or deep:
         from .ai.ffmpeg_analyzer import FFmpegHeuristicAnalyzer
-        analyzer = FFmpegHeuristicAnalyzer(quick=quick)
+        analyzer = FFmpegHeuristicAnalyzer(quick=quick, deep=deep)
     else:
         from .ai.claude_analyzer import ClaudeVisionAnalyzer
         try:
@@ -458,7 +461,31 @@ def analyze(limit, model, stub, use_ffmpeg, quick, gemini, workers, re_analyze, 
             raise SystemExit(1)
 
     with get_connection() as conn:
-        if re_analyze and min_score:
+        if share_name and re_analyze:
+            # Re-analyze all clips from a specific share
+            from .db import _row_to_clip
+            query = """SELECT * FROM clips WHERE duplicate_of IS NULL
+                AND share_name = ? ORDER BY recorded_at LIMIT ?"""
+            rows = conn.execute(query, (share_name, limit or 100000)).fetchall()
+            pending = [_row_to_clip(r) for r in rows]
+            for clip in pending:
+                tags = conn.execute(
+                    "SELECT name FROM tags WHERE clip_id = ?", (clip.id,)
+                ).fetchall()
+                clip.tags = [t["name"] for t in tags]
+        elif share_name:
+            # Analyze un-analyzed clips from a specific share
+            from .db import _row_to_clip
+            query = """SELECT * FROM clips WHERE duplicate_of IS NULL
+                AND share_name = ? AND ai_score IS NULL ORDER BY recorded_at LIMIT ?"""
+            rows = conn.execute(query, (share_name, limit or 100000)).fetchall()
+            pending = [_row_to_clip(r) for r in rows]
+            for clip in pending:
+                tags = conn.execute(
+                    "SELECT name FROM tags WHERE clip_id = ?", (clip.id,)
+                ).fetchall()
+                clip.tags = [t["name"] for t in tags]
+        elif re_analyze and min_score:
             # Re-analyze clips with heuristic score >= threshold, skip already-Gemini-analyzed
             if gemini:
                 query = """SELECT * FROM clips WHERE duplicate_of IS NULL
@@ -486,7 +513,7 @@ def analyze(limit, model, stub, use_ffmpeg, quick, gemini, workers, re_analyze, 
         console.print("All clips have been analyzed.")
         return
 
-    is_heuristic = use_ffmpeg or quick
+    is_heuristic = use_ffmpeg or quick or deep
     is_vision = gemini or (not is_heuristic and not stub)
     actual_workers = min(workers, 3) if gemini else workers
 
