@@ -75,12 +75,82 @@ FOLDER_TAGS: dict[str, list[str]] = {
 LOCAL_DIRS: dict[str, list[dict]] = {}
 
 if sys.platform == "win32":
+    # S: drive -- NVIDIA ShadowPlay recordings
     _nvidia = Path("S:/NVIDIA")
     if _nvidia.exists():
-        LOCAL_DIRS["nvidia"] = [
+        LOCAL_DIRS["nvidia-s"] = [
             {"path": "Valorant", "mode": "valorant_only"},
         ]
-        SHARES["nvidia"] = _nvidia
+        SHARES["nvidia-s"] = _nvidia
+
+    # S: drive -- test clips
+    _test = Path("S:/test clips")
+    if _test.exists():
+        LOCAL_DIRS["test-clips"] = [
+            {"path": ".", "mode": "all_mp4"},
+        ]
+        SHARES["test-clips"] = _test
+
+    # K: drive -- bulk archive (multiple backup snapshots)
+    _k = Path("K:/")
+    if _k.exists():
+        LOCAL_DIRS["archive-k"] = [
+            {"path": "theta/Valorant", "mode": "valorant_only"},
+            {"path": "theta/Valorant_3_8_25", "mode": "valorant_only"},
+            {"path": "theta/clips", "mode": "valorant_only"},
+            {"path": "theta/New folder (2)/Videos/Valorant", "mode": "valorant_only"},
+            {"path": "data/SHIT 7 4 23/VALORANT", "mode": "valorant_only"},
+            {"path": "data/vid/VALORANT", "mode": "all_mp4"},
+            {"path": "data/vid/VALORANT/old clips that are good", "mode": "all_mp4"},
+            {"path": "data/0424 scort/scort/VALORANT", "mode": "valorant_only"},
+            {"path": "data/val 5 13 2023/VALORANT", "mode": "valorant_only"},
+            {"path": "data/0424 scort/VALORANT", "mode": "valorant_only"},
+        ]
+        SHARES["archive-k"] = _k
+
+    # L: drive -- mixed clips
+    _l = Path("L:/")
+    if _l.exists():
+        LOCAL_DIRS["clips-l"] = [
+            {"path": "VALORANT", "mode": "all_mp4"},
+            {"path": "clips", "mode": "all_mp4"},
+        ]
+        SHARES["clips-l"] = _l
+
+    # P: drive -- network/shared storage (poseidon)
+    _p = Path("P:/poseidon/theta")
+    if _p.exists():
+        LOCAL_DIRS["poseidon-p"] = [
+            {"path": "Valorant", "mode": "valorant_only"},
+            {"path": "clips", "mode": "valorant_only"},
+            {"path": "clips/older", "mode": "valorant_only"},
+            {"path": "older", "mode": "valorant_only"},
+            {"path": "best", "mode": "all_mp4"},
+            {"path": "sherf", "mode": "all_mp4"},
+            {"path": "phx", "mode": "all_mp4"},
+            {"path": "New folder", "mode": "valorant_only"},
+        ]
+        SHARES["poseidon-p"] = _p
+
+    # C: drive -- current system ShadowPlay output
+    _c_vid = Path("C:/Users/sohum/Videos")
+    if _c_vid.exists():
+        LOCAL_DIRS["local-c"] = [
+            {"path": "Valorant", "mode": "valorant_only"},
+            {"path": "NVIDIA/Valorant", "mode": "valorant_only"},
+        ]
+        SHARES["local-c"] = _c_vid
+
+# Auto-detect FFmpeg/FFprobe on Windows (winget installs to a deep path)
+if sys.platform == "win32":
+    import glob as _glob
+    _winget_pattern = os.path.expandvars(
+        r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\Gyan.FFmpeg*\ffmpeg-*\bin"
+    )
+    for _bin_dir in _glob.glob(_winget_pattern):
+        if os.path.isfile(os.path.join(_bin_dir, "ffprobe.exe")):
+            os.environ["PATH"] = _bin_dir + ";" + os.environ.get("PATH", "")
+            break
 
 FFPROBE_TIMEOUT = 30  # seconds
 BATCH_SIZE = 50
