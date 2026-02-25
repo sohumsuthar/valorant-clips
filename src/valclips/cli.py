@@ -415,14 +415,17 @@ def previews(limit: int, min_score: int):
 @click.option("--quick", is_flag=True, help="Quick mode: metadata-only scoring (fastest, no ffmpeg).")
 @click.option("--deep", is_flag=True, help="Deep FFmpeg mode: adds audio + motion analysis (slower, more accurate).")
 @click.option("--gemini", is_flag=True, help="Use Gemini Vision (needs GEMINI_API_KEY, free tier).")
+@click.option("--local", "use_ollama", is_flag=True, help="Use local Ollama vision model (GPU, no API key).")
+@click.option("--ollama-model", default=None, help="Ollama model name (default: gemma3:12b-it-qat).")
 @click.option("--workers", "-w", default=1, type=int, help="Parallel workers (Gemini: max 3 for free tier).")
 @click.option("--re-analyze", is_flag=True, help="Re-analyze already analyzed clips.")
 @click.option("--min-score", default=None, type=int, help="Only re-analyze clips with heuristic score >= N.")
 @click.option("--share", "share_name", default=None, help="Only analyze clips from a specific share.")
-def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, workers, re_analyze, min_score, share_name):
+def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, use_ollama, ollama_model, workers, re_analyze, min_score, share_name):
     """Run AI analysis on clips.
 
     Backends:
+      --local:   Local Ollama vision model (GPU, no API key needed)
       --gemini:  Gemini Vision (free tier, best accuracy)
       --ffmpeg:  FFmpeg scene-change heuristics (free, no API)
       --deep:    FFmpeg + audio + motion analysis (slower, more accurate)
@@ -441,6 +444,16 @@ def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, workers, re_ana
     if stub:
         from .ai.stub import StubAnalyzer
         analyzer = StubAnalyzer()
+    elif use_ollama:
+        from .ai.ollama_analyzer import OllamaVisionAnalyzer
+        try:
+            analyzer = OllamaVisionAnalyzer(
+                model=ollama_model or "gemma3:12b-it-qat",
+            )
+            console.print(f"Using Ollama model: [bold]{analyzer.model}[/bold]")
+        except (ConnectionError, RuntimeError, ImportError) as e:
+            console.print(f"[red]{e}[/red]")
+            raise SystemExit(1)
     elif gemini:
         from .ai.gemini_analyzer import GeminiAnalyzer
         api_key = os.environ.get("GEMINI_API_KEY", "")
@@ -514,8 +527,9 @@ def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, workers, re_ana
         return
 
     is_heuristic = use_ffmpeg or quick or deep
-    is_vision = gemini or (not is_heuristic and not stub)
-    actual_workers = min(workers, 3) if gemini else workers
+    is_vision = gemini or use_ollama or (not is_heuristic and not stub)
+    # Local GPU can only do one inference at a time; Gemini capped at 3
+    actual_workers = 1 if use_ollama else (min(workers, 3) if gemini else workers)
 
     console.print(
         f"Analyzing {len(pending)} clips with [bold]{analyzer.__class__.__name__}[/bold] "
