@@ -31,8 +31,8 @@ MV_Y1 = 0.70
 
 # ── Optical flow (Farneback) ────────────────────────────────────
 FLOW_PARAMS = dict(
-    pyr_scale=0.5, levels=3, winsize=15,
-    iterations=3, poly_n=5, poly_sigma=1.2, flags=0,
+    pyr_scale=0.5, levels=2, winsize=15,
+    iterations=2, poly_n=5, poly_sigma=1.2, flags=0,
 )
 
 # ── Gameplay detection ──────────────────────────────────────────
@@ -155,12 +155,15 @@ class CVFrameAnalyzer:
         analyzed = 0
 
         while True:
+            frame_idx += 1
+            if frame_idx % skip != 0:
+                # grab() advances without decoding — much faster
+                if not cap.grab():
+                    break
+                continue
             ret, frame = cap.read()
             if not ret:
                 break
-            if frame_idx % skip != 0:
-                frame_idx += 1
-                continue
 
             small = cv2.resize(frame, (tw, th), interpolation=cv2.INTER_AREA)
             gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
@@ -189,7 +192,6 @@ class CVFrameAnalyzer:
                 move_hx.append(0.0)
 
             prev_gray = gray
-            frame_idx += 1
             analyzed += 1
 
         cap.release()
