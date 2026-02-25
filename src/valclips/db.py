@@ -98,6 +98,18 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS idx_clips_ai_score ON clips(ai_score);",
     "CREATE INDEX IF NOT EXISTS idx_clips_ai_kills ON clips(ai_kills);",
     "CREATE INDEX IF NOT EXISTS idx_clips_highlight_type ON clips(ai_highlight_type);",
+    # v3: CV mechanics analysis
+    "ALTER TABLE clips ADD COLUMN cv_flick_count INTEGER;",
+    "ALTER TABLE clips ADD COLUMN cv_avg_flick_speed REAL;",
+    "ALTER TABLE clips ADD COLUMN cv_max_flick_speed REAL;",
+    "ALTER TABLE clips ADD COLUMN cv_fastest_flick_ms REAL;",
+    "ALTER TABLE clips ADD COLUMN cv_crosshair_score REAL;",
+    "ALTER TABLE clips ADD COLUMN cv_counter_strafe_count INTEGER;",
+    "ALTER TABLE clips ADD COLUMN cv_avg_reaction_ms REAL;",
+    "ALTER TABLE clips ADD COLUMN cv_min_reaction_ms REAL;",
+    "ALTER TABLE clips ADD COLUMN cv_movement_intensity REAL;",
+    "ALTER TABLE clips ADD COLUMN cv_detail_json TEXT;",
+    "ALTER TABLE clips ADD COLUMN cv_analyzed_at TEXT;",
 ]
 
 
@@ -121,7 +133,7 @@ def init_db(db_path: Path | None = None):
 
 def _row_to_clip(row: sqlite3.Row) -> Clip:
     d = dict(row)
-    for field in ("recorded_at", "ai_analyzed_at", "created_at", "updated_at"):
+    for field in ("recorded_at", "ai_analyzed_at", "cv_analyzed_at", "created_at", "updated_at"):
         if d.get(field):
             d[field] = datetime.fromisoformat(d[field])
     d["tags"] = []
@@ -508,6 +520,48 @@ def update_clip_ai(
             (clip_id, tag_name),
         )
     conn.commit()
+
+
+def update_clip_cv(
+    conn: sqlite3.Connection,
+    clip_id: int,
+    *,
+    flick_count: int | None = None,
+    avg_flick_speed: float | None = None,
+    max_flick_speed: float | None = None,
+    fastest_flick_ms: float | None = None,
+    crosshair_score: float | None = None,
+    counter_strafe_count: int | None = None,
+    avg_reaction_ms: float | None = None,
+    min_reaction_ms: float | None = None,
+    movement_intensity: float | None = None,
+    detail_json: str | None = None,
+):
+    now = datetime.now().isoformat()
+    conn.execute(
+        """UPDATE clips SET
+            cv_flick_count=?, cv_avg_flick_speed=?, cv_max_flick_speed=?,
+            cv_fastest_flick_ms=?, cv_crosshair_score=?,
+            cv_counter_strafe_count=?, cv_avg_reaction_ms=?,
+            cv_min_reaction_ms=?, cv_movement_intensity=?,
+            cv_detail_json=?, cv_analyzed_at=?,
+            updated_at=datetime('now')
+        WHERE id=?""",
+        (flick_count, avg_flick_speed, max_flick_speed,
+         fastest_flick_ms, crosshair_score,
+         counter_strafe_count, avg_reaction_ms,
+         min_reaction_ms, movement_intensity,
+         detail_json, now, clip_id),
+    )
+    conn.commit()
+
+
+def clips_without_cv_analysis(conn: sqlite3.Connection, limit: int | None = None) -> list[Clip]:
+    q = "SELECT * FROM clips WHERE cv_analyzed_at IS NULL AND duplicate_of IS NULL ORDER BY recorded_at DESC"
+    if limit:
+        q += f" LIMIT {limit}"
+    rows = conn.execute(q).fetchall()
+    return [_row_to_clip(r) for r in rows]
 
 
 def get_top_clips(conn: sqlite3.Connection, limit: int = 20) -> list[Clip]:

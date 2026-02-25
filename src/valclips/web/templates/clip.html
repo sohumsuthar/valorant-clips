@@ -124,8 +124,52 @@
         </div>
         {% endif %}
 
+        <!-- Mechanics (CV Analysis) -->
+        {% if clip.cv_analyzed_at %}
+        <div class="meta-section">
+            <h4>Mechanics</h4>
+            <table>
+                {% if clip.cv_flick_count is not none %}
+                <tr><td>Flicks</td><td>{{ clip.cv_flick_count }}</td></tr>
+                {% endif %}
+                {% if clip.cv_max_flick_speed %}
+                <tr><td>Max Flick</td><td>{{ "%.0f"|format(clip.cv_max_flick_speed) }} deg/s</td></tr>
+                {% endif %}
+                {% if clip.cv_avg_flick_speed %}
+                <tr><td>Avg Flick</td><td>{{ "%.0f"|format(clip.cv_avg_flick_speed) }} deg/s</td></tr>
+                {% endif %}
+                {% if clip.cv_fastest_flick_ms %}
+                <tr><td>Fastest</td><td>{{ "%.0f"|format(clip.cv_fastest_flick_ms) }}ms</td></tr>
+                {% endif %}
+                {% if clip.cv_crosshair_score is not none %}
+                <tr>
+                    <td>Crosshair</td>
+                    <td>
+                        <div class="meter-bar-wrap">
+                            <div class="meter-bar" style="width: {{ (clip.cv_crosshair_score * 100)|int }}%"></div>
+                        </div>
+                        <span class="meter-label">{{ "%.0f"|format(clip.cv_crosshair_score * 100) }}%</span>
+                    </td>
+                </tr>
+                {% endif %}
+                {% if clip.cv_min_reaction_ms %}
+                <tr><td>Best React</td><td>{{ "%.0f"|format(clip.cv_min_reaction_ms) }}ms</td></tr>
+                {% endif %}
+                {% if clip.cv_avg_reaction_ms %}
+                <tr><td>Avg React</td><td>{{ "%.0f"|format(clip.cv_avg_reaction_ms) }}ms</td></tr>
+                {% endif %}
+                {% if clip.cv_counter_strafe_count %}
+                <tr><td>Counter-S</td><td>{{ clip.cv_counter_strafe_count }}</td></tr>
+                {% endif %}
+            </table>
+        </div>
+        {% endif %}
+
         <button id="reanalyze-btn" class="reanalyze-btn" data-clip-id="{{ clip.id }}">
             {% if clip.ai_agent %}Re-analyze{% else %}Analyze{% endif %}
+        </button>
+        <button id="cv-analyze-btn" class="reanalyze-btn mt-1" data-clip-id="{{ clip.id }}" style="margin-top:0.4rem">
+            {% if clip.cv_analyzed_at %}Re-analyze Mechanics{% else %}Analyze Mechanics{% endif %}
         </button>
         <div id="reanalyze-status" class="reanalyze-status"></div>
     </aside>
@@ -201,6 +245,37 @@ if (reBtn) {
             st.classList.add('error');
             reBtn.disabled = false;
             reBtn.textContent = 'Retry';
+        }
+    });
+}
+
+const cvBtn = document.getElementById('cv-analyze-btn');
+if (cvBtn) {
+    cvBtn.addEventListener('click', async () => {
+        const id = cvBtn.dataset.clipId;
+        const st = document.getElementById('reanalyze-status');
+        cvBtn.disabled = true;
+        cvBtn.textContent = 'Analyzing mechanics...';
+        st.textContent = '';
+        st.className = 'reanalyze-status';
+        try {
+            const r = await fetch(`/api/clips/${id}/cv-analyze`, { method: 'POST' });
+            const d = await r.json();
+            if (r.ok) {
+                st.textContent = `Flicks: ${d.flick_count}, Crosshair: ${Math.round(d.crosshair_score * 100)}%`;
+                st.classList.add('success');
+                setTimeout(() => location.reload(), 1200);
+            } else {
+                st.textContent = d.detail || 'Failed';
+                st.classList.add('error');
+                cvBtn.disabled = false;
+                cvBtn.textContent = 'Retry Mechanics';
+            }
+        } catch {
+            st.textContent = 'Network error';
+            st.classList.add('error');
+            cvBtn.disabled = false;
+            cvBtn.textContent = 'Retry Mechanics';
         }
     });
 }

@@ -1324,6 +1324,32 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.7); }
 
 .kill-bar-label { font-size: 0.7rem; color: var(--text-dim); margin-top: 3px; }
 
+/* ── Meter bars (crosshair/spray scores) ── */
+.meter-bar-wrap {
+    display: inline-block;
+    width: 80px;
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+    vertical-align: middle;
+    margin-right: 0.4rem;
+}
+
+.meter-bar {
+    height: 100%;
+    background: var(--green);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.meter-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    vertical-align: middle;
+}
+
 /* ── Utility ── */
 .flex { display: flex; }
 .flex-center { display: flex; align-items: center; }

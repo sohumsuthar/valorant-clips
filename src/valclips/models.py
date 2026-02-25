@@ -36,6 +36,17 @@ class Clip(BaseModel):
     ai_confidence: float | None = None
     ai_analyzed_at: datetime | None = None
     duplicate_of: int | None = None
+    cv_flick_count: int | None = None
+    cv_avg_flick_speed: float | None = None
+    cv_max_flick_speed: float | None = None
+    cv_fastest_flick_ms: float | None = None
+    cv_crosshair_score: float | None = None
+    cv_counter_strafe_count: int | None = None
+    cv_avg_reaction_ms: float | None = None
+    cv_min_reaction_ms: float | None = None
+    cv_movement_intensity: float | None = None
+    cv_detail_json: str | None = None
+    cv_analyzed_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
     tags: list[str] = []

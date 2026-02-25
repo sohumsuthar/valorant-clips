@@ -417,11 +417,12 @@ def previews(limit: int, min_score: int):
 @click.option("--gemini", is_flag=True, help="Use Gemini Vision (needs GEMINI_API_KEY, free tier).")
 @click.option("--local", "use_ollama", is_flag=True, help="Use local Ollama vision model (GPU, no API key).")
 @click.option("--ollama-model", default=None, help="Ollama model name (default: gemma3:12b-it-qat).")
+@click.option("--fps", default=2.0, type=float, help="Frame extraction rate for Ollama (default: 2.0 fps).")
 @click.option("--workers", "-w", default=1, type=int, help="Parallel workers (Gemini: max 3 for free tier).")
 @click.option("--re-analyze", is_flag=True, help="Re-analyze already analyzed clips.")
 @click.option("--min-score", default=None, type=int, help="Only re-analyze clips with heuristic score >= N.")
 @click.option("--share", "share_name", default=None, help="Only analyze clips from a specific share.")
-def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, use_ollama, ollama_model, workers, re_analyze, min_score, share_name):
+def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, use_ollama, ollama_model, fps, workers, re_analyze, min_score, share_name):
     """Run AI analysis on clips.
 
     Backends:
@@ -449,8 +450,9 @@ def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, use_ollama, oll
         try:
             analyzer = OllamaVisionAnalyzer(
                 model=ollama_model or "gemma3:12b-it-qat",
+                fps=fps,
             )
-            console.print(f"Using Ollama model: [bold]{analyzer.model}[/bold]")
+            console.print(f"Using Ollama model: [bold]{analyzer.model}[/bold] @ {fps} fps, {analyzer.max_frames} frames + {analyzer.max_crops} crops")
         except (ConnectionError, RuntimeError, ImportError) as e:
             console.print(f"[red]{e}[/red]")
             raise SystemExit(1)
@@ -550,6 +552,9 @@ def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, use_ollama, oll
                     duration=clip.duration_seconds,
                     directory=clip.directory, tags=clip.tags,
                 )
+            elif use_ollama:
+                # Ollama analyzer does its own dense extraction internally
+                ar = analyzer.analyze(clip.file_path, [])
             else:
                 segments, frames = get_clip_highlights(
                     clip.file_path, duration=clip.duration_seconds, max_frames=8,
@@ -685,6 +690,117 @@ def analyze(limit, model, stub, use_ffmpeg, quick, deep, gemini, use_ollama, oll
                 (c.ai_summary or "-")[:50],
             )
         console.print(table)
+
+
+@cli.command("cv-analyze")
+@click.option("--limit", default=None, type=int, help="Max clips to analyze.")
+@click.option("--fps", default=30.0, type=float, help="Analysis frame rate (default: 30 fps).")
+@click.option("--min-score", default=None, type=int, help="Only analyze clips with AI score >= N.")
+@click.option("--re-analyze", is_flag=True, help="Re-analyze already CV-analyzed clips.")
+@click.option("--share", "share_name", default=None, help="Only analyze clips from a specific share.")
+def cv_analyze(limit, fps, min_score, re_analyze, share_name):
+    """Run OpenCV mechanics analysis (flick speed, crosshair, reaction time).
+
+    This is a CPU-only pipeline using optical flow -- no GPU or API needed.
+    Analyzes center-screen aim movement to detect flicks, crosshair
+    stability, counter-strafes, reaction times, and spray control.
+    """
+    from .ai.cv_analyzer import CVFrameAnalyzer
+    from .db import update_clip_cv, clips_without_cv_analysis, _row_to_clip
+    from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
+
+    analyzer = CVFrameAnalyzer(target_fps=fps)
+
+    with get_connection() as conn:
+        if re_analyze:
+            where = "duplicate_of IS NULL"
+            params: list = []
+            if min_score is not None:
+                where += " AND ai_score >= ?"
+                params.append(min_score)
+            if share_name:
+                where += " AND share_name = ?"
+                params.append(share_name)
+            q = f"SELECT * FROM clips WHERE {where} ORDER BY recorded_at DESC"
+            if limit:
+                q += f" LIMIT {limit}"
+            rows = conn.execute(q, params).fetchall()
+            pending = [_row_to_clip(r) for r in rows]
+        else:
+            if min_score is not None or share_name:
+                where = "cv_analyzed_at IS NULL AND duplicate_of IS NULL"
+                params = []
+                if min_score is not None:
+                    where += " AND ai_score >= ?"
+                    params.append(min_score)
+                if share_name:
+                    where += " AND share_name = ?"
+                    params.append(share_name)
+                q = f"SELECT * FROM clips WHERE {where} ORDER BY recorded_at DESC"
+                if limit:
+                    q += f" LIMIT {limit}"
+                rows = conn.execute(q, params).fetchall()
+                pending = [_row_to_clip(r) for r in rows]
+            else:
+                pending = clips_without_cv_analysis(conn, limit=limit)
+
+    if not pending:
+        console.print("All clips have been CV-analyzed.")
+        return
+
+    console.print(f"CV-analyzing {len(pending)} clips at [bold]{fps} fps[/bold]...")
+    errors = 0
+    completed = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("CV Analysis", total=len(pending))
+
+        for i, clip in enumerate(pending, 1):
+            progress.update(task, description=f"[{i}/{len(pending)}] #{clip.id}")
+            try:
+                result = analyzer.analyze(clip.file_path)
+
+                with get_connection() as conn:
+                    update_clip_cv(
+                        conn, clip.id,
+                        flick_count=len(result.flicks),
+                        avg_flick_speed=result.avg_flick_speed,
+                        max_flick_speed=result.max_flick_speed,
+                        fastest_flick_ms=result.fastest_flick_ms,
+                        crosshair_score=result.crosshair_score,
+                        counter_strafe_count=result.counter_strafe_count,
+                        avg_reaction_ms=result.avg_reaction_ms,
+                        min_reaction_ms=result.min_reaction_ms,
+                        movement_intensity=result.movement_intensity,
+                        detail_json=result.to_json(),
+                    )
+                completed += 1
+
+                info_parts = [f"Flicks: {len(result.flicks)}"]
+                if result.max_flick_speed:
+                    info_parts.append(f"Max: {result.max_flick_speed:.0f} deg/s")
+                if result.crosshair_score is not None:
+                    info_parts.append(f"XH: {result.crosshair_score:.0%}")
+                if result.min_reaction_ms:
+                    info_parts.append(f"React: {result.min_reaction_ms:.0f}ms")
+                if result.counter_strafe_count:
+                    info_parts.append(f"CS: {result.counter_strafe_count}")
+                progress.console.print(f"  #{clip.id} {' | '.join(info_parts)}")
+
+            except Exception as e:
+                errors += 1
+                progress.console.print(f"  [red]#{clip.id} Error: {e}[/red]")
+
+            progress.advance(task)
+
+    console.print(f"\n[green]CV analysis complete![/green] {completed} analyzed, {errors} errors")
 
 
 @cli.command("top")

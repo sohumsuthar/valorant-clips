@@ -229,6 +229,60 @@ async def api_analyze_clip(clip_id: int):
         raise HTTPException(500, f"Analysis failed: {str(e)[:200]}")
 
 
+@router.get("/api/clips/{clip_id}/cv")
+def api_get_cv(clip_id: int):
+    """Get CV analysis detail JSON for a clip."""
+    with get_connection() as conn:
+        clip = get_clip(conn, clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+    if not clip.cv_detail_json:
+        raise HTTPException(404, "No CV analysis available")
+    import json
+    return json.loads(clip.cv_detail_json)
+
+
+@router.post("/api/clips/{clip_id}/cv-analyze")
+async def api_cv_analyze_clip(clip_id: int):
+    """Trigger CV mechanics analysis for a single clip."""
+    with get_connection() as conn:
+        clip = get_clip(conn, clip_id)
+    if not clip:
+        raise HTTPException(404, "Clip not found")
+
+    try:
+        from ..ai.cv_analyzer import CVFrameAnalyzer
+        from ..db import update_clip_cv
+
+        analyzer = CVFrameAnalyzer()
+        result = analyzer.analyze(clip.file_path)
+
+        with get_connection() as conn:
+            update_clip_cv(
+                conn, clip_id,
+                flick_count=len(result.flicks),
+                avg_flick_speed=result.avg_flick_speed,
+                max_flick_speed=result.max_flick_speed,
+                fastest_flick_ms=result.fastest_flick_ms,
+                crosshair_score=result.crosshair_score,
+                counter_strafe_count=result.counter_strafe_count,
+                avg_reaction_ms=result.avg_reaction_ms,
+                min_reaction_ms=result.min_reaction_ms,
+                movement_intensity=result.movement_intensity,
+                detail_json=result.to_json(),
+            )
+
+        return {
+            "ok": True,
+            "flick_count": len(result.flicks),
+            "crosshair_score": result.crosshair_score,
+            "max_flick_speed": result.max_flick_speed,
+            "min_reaction_ms": result.min_reaction_ms,
+        }
+    except Exception as e:
+        raise HTTPException(500, f"CV analysis failed: {str(e)[:200]}")
+
+
 @router.get("/api/insights")
 def api_insights():
     with get_connection() as conn:
