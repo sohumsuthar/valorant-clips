@@ -1,31 +1,33 @@
 {% extends "base.html" %}
-{% block title %}Insights - Valorant Clips{% endblock %}
+{% block title %}Insights - valclips{% endblock %}
 {% block content %}
 
-<h2>Gameplay Insights</h2>
-<p>AI analysis of {{ insights.analyzed }}/{{ insights.total }} clips ({{ "%.0f"|format(insights.analyzed / insights.total * 100) if insights.total else 0 }}% analyzed)</p>
+<div class="mb-2">
+    <h2>Insights</h2>
+    <p class="text-sm" style="margin:0">{{ insights.analyzed }}/{{ insights.total }} clips analyzed ({{ "%.0f"|format(insights.analyzed / insights.total * 100) if insights.total else 0 }}%)</p>
+</div>
 
 <!-- Summary Stats -->
-<div class="grid insights-stats">
+<div class="stats-grid mb-2">
     <div class="stat-card">
         <small>Total Kills</small>
         <strong>{{ insights.total_kills }}</strong>
     </div>
     <div class="stat-card">
-        <small>Total Deaths</small>
+        <small>Deaths</small>
         <strong>{{ insights.total_deaths }}</strong>
     </div>
     <div class="stat-card">
-        <small>K/D Ratio</small>
+        <small>K/D</small>
         <strong>{{ "%.2f"|format(insights.total_kills / insights.total_deaths) if insights.total_deaths else '-' }}</strong>
     </div>
     <div class="stat-card">
         <small>Aces</small>
-        <strong style="color:var(--val-red)">{{ insights.total_aces }}</strong>
+        <strong class="text-red">{{ insights.total_aces }}</strong>
     </div>
     <div class="stat-card">
         <small>Clutches</small>
-        <strong style="color:#8b5cf6">{{ insights.total_clutches }}</strong>
+        <strong style="color:var(--purple)">{{ insights.total_clutches }}</strong>
     </div>
     <div class="stat-card">
         <small>Win Rate</small>
@@ -37,11 +39,10 @@
     </div>
 </div>
 
-<!-- Agent Stats -->
 {% if insights.agent_stats %}
-<h3>Agent Performance</h3>
-<div class="insights-table-wrap">
-    <table class="insights-table">
+<h3 class="mb-1">Agents</h3>
+<div class="insights-table-wrap mb-2">
+    <table>
         <thead>
             <tr>
                 <th>Agent</th>
@@ -50,7 +51,7 @@
                 <th>Avg Kills</th>
                 <th>Total Kills</th>
                 <th>Aces</th>
-                <th></th>
+                <th style="width:25%"></th>
             </tr>
         </thead>
         <tbody>
@@ -58,15 +59,11 @@
             <tr>
                 <td><span class="agent-pill">{{ a.ai_player_agent }}</span></td>
                 <td>{{ a.cnt }}</td>
-                <td>
-                    <span class="mini-score score-{{ a.avg_score|int }}">{{ a.avg_score }}</span>
-                </td>
+                <td><span class="mini-score score-{{ a.avg_score|int }}">{{ a.avg_score }}</span></td>
                 <td>{{ a.avg_kills }}</td>
                 <td>{{ a.total_kills or 0 }}</td>
-                <td>{% if a.aces %}<span style="color:var(--val-red);font-weight:bold">{{ a.aces }}</span>{% else %}-{% endif %}</td>
-                <td>
-                    <div class="bar-inline" style="width:{{ (a.cnt / insights.agent_stats[0].cnt * 100)|int }}%"></div>
-                </td>
+                <td>{% if a.aces %}<strong class="text-red">{{ a.aces }}</strong>{% else %}<span class="text-dim">-</span>{% endif %}</td>
+                <td><div class="bar-inline" style="width:{{ (a.cnt / insights.agent_stats[0].cnt * 100)|int }}%"></div></td>
             </tr>
             {% endfor %}
         </tbody>
@@ -74,11 +71,10 @@
 </div>
 {% endif %}
 
-<!-- Map Stats -->
 {% if insights.map_stats %}
-<h3>Map Performance</h3>
-<div class="insights-table-wrap">
-    <table class="insights-table">
+<h3 class="mb-1">Maps</h3>
+<div class="insights-table-wrap mb-2">
+    <table>
         <thead>
             <tr>
                 <th>Map</th>
@@ -88,7 +84,7 @@
                 <th>Wins</th>
                 <th>Losses</th>
                 <th>Win %</th>
-                <th></th>
+                <th style="width:20%"></th>
             </tr>
         </thead>
         <tbody>
@@ -96,21 +92,15 @@
             <tr>
                 <td><span class="map-pill">{{ m.ai_map }}</span></td>
                 <td>{{ m.cnt }}</td>
-                <td>
-                    <span class="mini-score score-{{ m.avg_score|int }}">{{ m.avg_score }}</span>
-                </td>
+                <td><span class="mini-score score-{{ m.avg_score|int }}">{{ m.avg_score }}</span></td>
                 <td>{{ m.avg_kills }}</td>
                 <td>{{ m.wins or 0 }}</td>
                 <td>{{ m.losses or 0 }}</td>
                 <td>
                     {% set total_games = (m.wins or 0) + (m.losses or 0) %}
-                    {% if total_games > 0 %}
-                    {{ "%.0f"|format((m.wins or 0) / total_games * 100) }}%
-                    {% else %}-{% endif %}
+                    {% if total_games > 0 %}{{ "%.0f"|format((m.wins or 0) / total_games * 100) }}%{% else %}<span class="text-dim">-</span>{% endif %}
                 </td>
-                <td>
-                    <div class="bar-inline" style="width:{{ (m.cnt / insights.map_stats[0].cnt * 100)|int }}%"></div>
-                </td>
+                <td><div class="bar-inline" style="width:{{ (m.cnt / insights.map_stats[0].cnt * 100)|int }}%"></div></td>
             </tr>
             {% endfor %}
         </tbody>
@@ -118,11 +108,10 @@
 </div>
 {% endif %}
 
-<!-- Weapon Stats -->
 {% if insights.weapon_stats %}
-<h3>Weapon Usage</h3>
-<div class="insights-table-wrap">
-    <table class="insights-table">
+<h3 class="mb-1">Weapons</h3>
+<div class="insights-table-wrap mb-2">
+    <table>
         <thead>
             <tr>
                 <th>Weapon</th>
@@ -130,7 +119,7 @@
                 <th>Avg Score</th>
                 <th>Avg Kills</th>
                 <th>Total Kills</th>
-                <th></th>
+                <th style="width:25%"></th>
             </tr>
         </thead>
         <tbody>
@@ -138,14 +127,10 @@
             <tr>
                 <td><strong>{{ w.ai_weapon }}</strong></td>
                 <td>{{ w.cnt }}</td>
-                <td>
-                    <span class="mini-score score-{{ w.avg_score|int }}">{{ w.avg_score }}</span>
-                </td>
+                <td><span class="mini-score score-{{ w.avg_score|int }}">{{ w.avg_score }}</span></td>
                 <td>{{ w.avg_kills }}</td>
                 <td>{{ w.total_kills or 0 }}</td>
-                <td>
-                    <div class="bar-inline weapon-bar" style="width:{{ (w.cnt / insights.weapon_stats[0].cnt * 100)|int }}%"></div>
-                </td>
+                <td><div class="bar-inline weapon-bar" style="width:{{ (w.cnt / insights.weapon_stats[0].cnt * 100)|int }}%"></div></td>
             </tr>
             {% endfor %}
         </tbody>
@@ -153,10 +138,9 @@
 </div>
 {% endif %}
 
-<!-- Highlight Types -->
 {% if insights.type_stats %}
-<h3>Clip Types</h3>
-<div class="type-grid">
+<h3 class="mb-1">Clip Types</h3>
+<div class="type-grid mb-2">
     {% for t in insights.type_stats %}
     <div class="type-card">
         <div class="type-card-name">{{ t.ai_highlight_type }}</div>
@@ -167,14 +151,13 @@
 </div>
 {% endif %}
 
-<!-- Kill Distribution -->
 {% if insights.kill_distribution %}
-<h3>Kill Distribution</h3>
+<h3 class="mb-1">Kill Distribution</h3>
 <div class="kill-chart">
     {% set max_kill_count = insights.kill_distribution|map(attribute='cnt')|max %}
     {% for k in insights.kill_distribution %}
     <div class="kill-bar-wrap">
-        <div class="kill-bar" style="height:{{ (k.cnt / max_kill_count * 100)|int }}%;background:{{ '#ff4655' if k.ai_kills >= 5 else '#ef4444' if k.ai_kills >= 3 else '#3b82f6' if k.ai_kills >= 1 else '#555' }}">
+        <div class="kill-bar" style="height:{{ (k.cnt / max_kill_count * 100)|int }}%;background:{{ '#ff4655' if k.ai_kills >= 5 else '#dc2626' if k.ai_kills >= 3 else '#4a9eff' if k.ai_kills >= 1 else '#555566' }}">
             <span class="kill-bar-count">{{ k.cnt }}</span>
         </div>
         <span class="kill-bar-label">{{ k.ai_kills }}K</span>
@@ -183,124 +166,4 @@
 </div>
 {% endif %}
 
-<style>
-.insights-stats {
-    margin-bottom: 2rem;
-}
-
-.insights-table-wrap {
-    overflow-x: auto;
-    margin-bottom: 2rem;
-}
-
-.insights-table {
-    width: 100%;
-    font-size: 0.9rem;
-}
-
-.insights-table th {
-    text-align: left;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    opacity: 0.6;
-}
-
-.insights-table td {
-    padding: 0.5rem 0.75rem;
-}
-
-.mini-score {
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: bold;
-    font-size: 0.8rem;
-    color: #fff;
-}
-
-.bar-inline {
-    height: 6px;
-    background: var(--val-red);
-    border-radius: 3px;
-    min-width: 4px;
-    opacity: 0.6;
-}
-
-.bar-inline.weapon-bar {
-    background: #3b82f6;
-}
-
-.type-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 2rem;
-}
-
-.type-card {
-    background: var(--card-bg);
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-}
-
-.type-card-name {
-    font-size: 0.85rem;
-    font-weight: bold;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.5rem;
-}
-
-.type-card-count {
-    font-size: 1.8rem;
-    font-weight: bold;
-    color: var(--val-red);
-}
-
-.type-card-score {
-    font-size: 0.75rem;
-    opacity: 0.5;
-}
-
-.kill-chart {
-    display: flex;
-    align-items: flex-end;
-    gap: 6px;
-    height: 120px;
-    margin-bottom: 2rem;
-}
-
-.kill-bar-wrap {
-    flex: 1;
-    max-width: 80px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    height: 100%;
-    justify-content: flex-end;
-}
-
-.kill-bar {
-    width: 100%;
-    border-radius: 4px 4px 0 0;
-    min-height: 4px;
-    position: relative;
-}
-
-.kill-bar-count {
-    position: absolute;
-    bottom: calc(100% + 2px);
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 0.7rem;
-    font-weight: bold;
-}
-
-.kill-bar-label {
-    font-size: 0.75rem;
-    opacity: 0.6;
-    margin-top: 4px;
-}
-</style>
 {% endblock %}

@@ -56,6 +56,7 @@ def index_page(request: Request):
         "request": request,
         "stats": stats,
         "tags": all_tags,
+        "active_page": "gallery",
     })
 
 
@@ -73,6 +74,7 @@ def clip_page(request: Request, clip_id: int):
         "prev_id": prev_id,
         "next_id": next_id,
         "related": related,
+        "active_page": "clip",
     })
 
 
@@ -242,6 +244,7 @@ def insights_page(request: Request):
         "request": request,
         "insights": insights,
         "stats": stats,
+        "active_page": "insights",
     })
 
 
@@ -254,6 +257,7 @@ def top_page(request: Request):
         "request": request,
         "clips": clips,
         "stats": stats,
+        "active_page": "top",
     })
 
 
@@ -266,6 +270,7 @@ def sessions_page(request: Request):
         "request": request,
         "sessions": sessions[:100],
         "stats": stats,
+        "active_page": "sessions",
     })
 
 

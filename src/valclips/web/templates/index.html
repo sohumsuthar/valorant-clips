@@ -1,144 +1,120 @@
 {% extends "base.html" %}
-{% block title %}Valorant Clips - Gallery{% endblock %}
+{% block title %}Gallery - valclips{% endblock %}
 {% block content %}
 
-<!-- Stats Bar -->
-<div class="grid" id="stats-bar">
-    <div class="stat-card">
-        <small>Total Clips</small>
-        <strong>{{ stats.total_clips }}</strong>
-    </div>
-    <div class="stat-card">
-        <small>Total Size</small>
-        <strong id="total-size" data-bytes="{{ stats.total_size_bytes }}">--</strong>
-    </div>
-    <div class="stat-card">
-        <small>Duration</small>
-        <strong id="total-duration" data-seconds="{{ stats.total_duration_seconds }}">--</strong>
-    </div>
-    <a href="/sessions" class="stat-card" style="text-decoration:none;color:inherit">
-        <small>Analyzed</small>
-        <strong>{{ stats.analyzed }}</strong>
-    </a>
-    <a href="/top" class="stat-card" style="text-decoration:none;color:inherit">
-        <small>Top Rated</small>
-        <strong>{{ stats.top_rated }}</strong>
-    </a>
-</div>
-
 <!-- Charts Row -->
-<div class="charts-row">
-    <div class="timeline-wrap" style="flex:2">
-        <small class="chart-label">Recording Timeline</small>
+<div class="charts-row mb-1">
+    <div class="chart-box" style="flex:2;overflow-x:auto">
+        <span class="chart-label">Timeline</span>
         <div id="timeline-chart" class="timeline-chart"></div>
     </div>
-    <div class="chart-card" style="flex:1">
-        <small class="chart-label">Score Distribution</small>
+    <div class="chart-box" style="flex:1">
+        <span class="chart-label">Score Spread</span>
         <div id="score-chart" class="score-chart"></div>
     </div>
 </div>
 
-<!-- Date Range Quick Filters -->
+<!-- Date Range -->
 <div class="date-range-bar">
     <button class="date-btn active" data-range="all">All Time</button>
-    <button class="date-btn" data-range="year">Past Year</button>
-    <button class="date-btn" data-range="6mo">Past 6 Months</button>
-    <button class="date-btn" data-range="3mo">Past 3 Months</button>
-    <button class="date-btn" data-range="month">Past Month</button>
-    <button class="date-btn" data-range="week">Past Week</button>
+    <button class="date-btn" data-range="year">Year</button>
+    <button class="date-btn" data-range="6mo">6 Mo</button>
+    <button class="date-btn" data-range="3mo">3 Mo</button>
+    <button class="date-btn" data-range="month">Month</button>
+    <button class="date-btn" data-range="week">Week</button>
 </div>
 
-<!-- Search + Filters -->
-<div class="grid filter-bar">
-    <div>
-        <input type="search" id="search-input" placeholder="Search clips, maps, summaries..." />
+<!-- Filter Toolbar -->
+<div class="filter-toolbar">
+    <input type="search" id="search-input" placeholder="Search clips..." />
+    <select id="sort-select">
+        <option value="score">Score</option>
+        <option value="date">Date</option>
+        <option value="kills">Kills</option>
+        <option value="duration">Duration</option>
+        <option value="size">Size</option>
+        <option value="name">Name</option>
+    </select>
+    <select id="share-select">
+        <option value="">All Sources</option>
+        {% for name in stats.by_share %}
+        <option value="{{ name }}">{{ name }}</option>
+        {% endfor %}
+    </select>
+    <button class="filter-toggle-btn" id="filter-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+        Filters
+    </button>
+</div>
+
+<!-- Advanced Filter Panel -->
+<div class="filter-panel" id="filter-panel">
+    <div class="filter-panel-grid">
+        <div class="filter-group">
+            <label>Score</label>
+            <select id="score-filter">
+                <option value="">Any</option>
+                <option value="9">9+ Elite</option>
+                <option value="7">7+ Great</option>
+                <option value="5">5+ Good</option>
+                <option value="3">3+ Okay</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Kills</label>
+            <select id="kills-filter">
+                <option value="">Any</option>
+                <option value="5">5+ Ace</option>
+                <option value="4">4+</option>
+                <option value="3">3+</option>
+                <option value="2">2+</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Type</label>
+            <select id="type-filter"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Agent</label>
+            <select id="agent-filter"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Map</label>
+            <select id="map-filter"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Weapon</label>
+            <select id="weapon-filter"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Clutch</label>
+            <select id="clutch-filter"><option value="">All</option></select>
+        </div>
     </div>
-    <div>
-        <select id="sort-select">
-            <option value="date">Sort by Date</option>
-            <option value="score">Sort by Score</option>
-            <option value="kills">Sort by Kills</option>
-            <option value="duration">Sort by Duration</option>
-            <option value="size">Sort by Size</option>
-            <option value="name">Sort by Name</option>
-        </select>
-    </div>
-    <div>
-        <select id="share-select">
-            <option value="">All Shares</option>
-            {% for name in stats.by_share %}
-            <option value="{{ name }}">{{ name }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    <div>
-        <label class="dupe-toggle">
+    <div class="filter-actions">
+        <label class="filter-check">
+            <input type="checkbox" id="aces-only" />
+            Aces only
+        </label>
+        <label class="filter-check">
             <input type="checkbox" id="hide-dupes" checked />
             Hide duplicates
         </label>
+        <button class="btn-ghost btn-sm" id="clear-filters" style="display:none">Clear all</button>
     </div>
 </div>
 
-<!-- Advanced Filters -->
-<div class="filter-pills" id="filter-pills">
-    <select id="score-filter" class="pill-select">
-        <option value="">Any Score</option>
-        <option value="9">9+ (Elite)</option>
-        <option value="7">7+ (Great)</option>
-        <option value="5">5+ (Notable)</option>
-        <option value="3">3+ (Average)</option>
-    </select>
-    <select id="kills-filter" class="pill-select">
-        <option value="">Any Kills</option>
-        <option value="5">5+ (Ace)</option>
-        <option value="4">4+</option>
-        <option value="3">3+</option>
-        <option value="2">2+</option>
-    </select>
-    <select id="type-filter" class="pill-select">
-        <option value="">All Types</option>
-    </select>
-    <select id="clutch-filter" class="pill-select">
-        <option value="">All Clutches</option>
-    </select>
-    <select id="agent-filter" class="pill-select">
-        <option value="">All Agents</option>
-    </select>
-    <select id="weapon-filter" class="pill-select">
-        <option value="">All Weapons</option>
-    </select>
-    <select id="map-filter" class="pill-select">
-        <option value="">All Maps</option>
-    </select>
-    <label class="pill-toggle">
-        <input type="checkbox" id="aces-only" />
-        Aces Only
-    </label>
-    <button id="clear-filters" class="pill-btn" style="display:none">Clear Filters</button>
+<!-- Active Filter Chips -->
+<div id="active-filters" class="active-filters"></div>
+
+<!-- Gallery Header -->
+<div class="gallery-header">
+    <span id="result-count" class="result-count"></span>
 </div>
 
-<div class="gallery-layout">
-    <!-- Tag sidebar -->
-    <aside class="tag-sidebar">
-        <h4>Tags</h4>
-        <div id="tag-cloud">
-            {% for t in tags %}
-            <a href="#" class="tag-link" data-tag="{{ t.name }}">{{ t.name }} ({{ t.count }})</a>
-            {% endfor %}
-            {% if not tags %}
-            <p><small>No tags yet</small></p>
-            {% endif %}
-        </div>
-    </aside>
-
-    <!-- Clip Grid -->
-    <section class="clip-grid-wrap">
-        <div id="clip-grid" class="clip-grid">
-            <!-- Populated by JS -->
-        </div>
-        <div id="pagination" class="pagination"></div>
-    </section>
-</div>
+<!-- Clip Grid -->
+<div id="clip-grid" class="clip-grid"></div>
+<div id="pagination" class="pagination"></div>
 
 <template id="clip-card-template">
     <article class="clip-card" data-id="">
@@ -150,9 +126,9 @@
                 <span class="card-score" style="display:none"></span>
             </div>
             <div class="card-body">
-                <small class="clip-date"></small>
                 <div class="clip-name"></div>
                 <div class="clip-meta"></div>
+                <small class="clip-date"></small>
             </div>
         </a>
     </article>

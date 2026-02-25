@@ -1,25 +1,24 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Valorant Clips{% endblock %}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <title>{% block title %}valclips{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <nav class="container-fluid">
-        <ul>
-            <li><a href="/"><strong>valclips</strong></a></li>
-        </ul>
-        <ul>
-            <li><a href="/">Gallery</a></li>
-            <li><a href="/top">Top Clips</a></li>
-            <li><a href="/sessions">Sessions</a></li>
-            <li><a href="/insights">Insights</a></li>
-        </ul>
+    <nav class="top-nav">
+        <div class="nav-inner">
+            <a href="/" class="nav-brand">val<span>clips</span></a>
+            <ul class="nav-links">
+                <li><a href="/" {% if active_page == 'gallery' %}class="active"{% endif %}>Gallery</a></li>
+                <li><a href="/top" {% if active_page == 'top' %}class="active"{% endif %}>Top Clips</a></li>
+                <li><a href="/sessions" {% if active_page == 'sessions' %}class="active"{% endif %}>Sessions</a></li>
+                <li><a href="/insights" {% if active_page == 'insights' %}class="active"{% endif %}>Insights</a></li>
+            </ul>
+        </div>
     </nav>
-    <main class="container-fluid">
+    <main class="container page-content">
         {% block content %}{% endblock %}
     </main>
     <script src="/static/app.js"></script>

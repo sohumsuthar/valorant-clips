@@ -1,10 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Top Clips - Valorant Clips{% endblock %}
+{% block title %}Top Clips - valclips{% endblock %}
 {% block content %}
-<h2>Top Clips</h2>
-<p>{{ clips|length }} highest-scoring clips ranked by AI analysis.</p>
 
-<!-- Type filter pills -->
+<div class="flex-between mb-1">
+    <div>
+        <h2>Top Clips</h2>
+        <p class="text-sm" style="margin:0">{{ clips|length }} highest-scoring clips</p>
+    </div>
+</div>
+
 <div class="top-filters">
     <button class="type-pill active" data-type="">All</button>
     {% set seen_types = [] %}
@@ -22,9 +26,9 @@
     <a href="/clips/{{ clip.id }}">
         <div class="card-thumb">
             {% if clip.thumbnail_path %}
-            <img src="/thumbnails/{{ clip.thumbnail_path.split('/')[-1] }}" alt="{{ clip.filename }}" loading="lazy">
+            <img src="/thumbnails/{{ clip.thumbnail_path.split('/')[-1] }}" alt="" loading="lazy">
             {% else %}
-            <div class="no-thumb">#{{ clip.id }}</div>
+            <div class="no-thumb"><span class="no-thumb-icon">&#9654;</span><span class="no-thumb-id">#{{ clip.id }}</span></div>
             {% endif %}
             <span class="score-badge score-{{ clip.ai_score or 0 }}">{{ clip.ai_score or '?' }}/10</span>
             {% if clip.ai_highlight_type %}
@@ -34,126 +38,75 @@
         </div>
         <div class="card-info">
             <strong class="card-title">{{ clip.filename | format_clip_name }}</strong>
-            {% if clip.ai_map %}<span class="card-meta">{{ clip.ai_map }}</span>{% endif %}
+            <span class="card-meta">
+                {% if clip.ai_kills %}{{ clip.ai_kills }}K{% endif %}
+                {% if clip.ai_player_agent %} &middot; {{ clip.ai_player_agent }}{% endif %}
+                {% if clip.ai_map %} &middot; {{ clip.ai_map }}{% endif %}
+            </span>
             {% if clip.ai_summary %}<span class="card-summary">{{ clip.ai_summary[:80] }}</span>{% endif %}
             <span class="card-meta">
                 {% if clip.duration_seconds %}{{ "%.0f"|format(clip.duration_seconds) }}s{% endif %}
-                {% if clip.recorded_at %} | {{ clip.recorded_at.strftime('%Y-%m-%d') }}{% endif %}
+                {% if clip.recorded_at %} &middot; {{ clip.recorded_at.strftime('%b %d, %Y') }}{% endif %}
             </span>
+            {% if clip.tags %}
             <div class="card-tags">
-                {% for tag in clip.tags[:5] %}
+                {% for tag in clip.tags[:4] %}
                 <span class="tag">{{ tag }}</span>
                 {% endfor %}
             </div>
+            {% endif %}
         </div>
     </a>
 </article>
 {% endfor %}
 </div>
 
-<!-- Quick preview modal -->
+<!-- Quick preview -->
 <dialog id="quick-preview">
-    <article>
-        <header>
-            <button id="close-preview" aria-label="Close">&times;</button>
-            <span id="preview-title"></span>
-        </header>
-        <video id="preview-player" controls preload="metadata" style="width:100%;border-radius:4px">
+    <div class="dialog-header">
+        <span id="preview-title"></span>
+        <button class="dialog-close" id="close-preview">&times;</button>
+    </div>
+    <div class="dialog-body">
+        <video id="preview-player" controls preload="metadata">
             <source src="" type="video/mp4">
         </video>
-        <footer>
-            <a id="preview-link" href="#">View Full Details</a>
-        </footer>
-    </article>
+    </div>
+    <div class="dialog-footer">
+        <a id="preview-link" href="#">View full details &rarr;</a>
+    </div>
 </dialog>
 
-<style>
-.top-filters { display: flex; gap: 0.4rem; margin-bottom: 1rem; flex-wrap: wrap; }
-.type-pill {
-    padding: 0.3rem 0.8rem; font-size: 0.8rem; border-radius: 16px;
-    border: 1px solid #444; background: transparent; color: inherit; cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-}
-.type-pill.active { background: var(--val-red); border-color: var(--val-red); color: #fff; }
-.type-pill:hover:not(.active) { border-color: var(--val-red); }
-
-.clip-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
-.clip-card { border: 1px solid var(--pico-muted-border-color); border-radius: 8px; overflow: hidden; transition: transform 0.15s, border-color 0.15s; padding: 0; margin: 0; }
-.clip-card a { text-decoration: none; color: inherit; }
-.clip-card:hover { transform: translateY(-2px); border-color: #ff4655; }
-.clip-card.hidden { display: none; }
-.card-thumb { position: relative; background: #111; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.card-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.no-thumb { color: #666; font-size: 1.5rem; }
-.score-badge { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
-.score-9, .score-10 { background: #ff4655 !important; }
-.score-7, .score-8 { background: #c49b33 !important; }
-.score-5, .score-6 { background: #3b82f6 !important; }
-.type-badge { position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,0.8); color: #ccc; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; }
-.rank-badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.8); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
-.card-info { padding: 0.75rem; }
-.card-title { display: block; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 0.25rem; }
-.card-summary { display: block; font-size: 0.75rem; color: #999; margin-bottom: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-meta { display: block; font-size: 0.75rem; color: #888; }
-.card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 0.4rem; }
-.tag { font-size: 0.65rem; background: #222; color: #aaa; padding: 1px 6px; border-radius: 3px; }
-
-#quick-preview { max-width: 700px; width: 90vw; }
-#quick-preview article { margin: 0; }
-#quick-preview header { display: flex; justify-content: space-between; align-items: center; }
-#close-preview { background: none; border: none; color: inherit; font-size: 1.5rem; cursor: pointer; padding: 0; margin: 0; width: auto; }
-#preview-title { font-weight: bold; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-</style>
-
 <script>
-// Type filter pills
+// Type filter
 document.querySelectorAll('.type-pill').forEach(pill => {
     pill.addEventListener('click', () => {
         document.querySelectorAll('.type-pill').forEach(p => p.classList.remove('active'));
         pill.classList.add('active');
         const type = pill.dataset.type;
         document.querySelectorAll('.top-card').forEach(card => {
-            if (!type || card.dataset.type === type) {
-                card.classList.remove('hidden');
-            } else {
-                card.classList.add('hidden');
-            }
+            card.classList.toggle('hidden', type && card.dataset.type !== type);
         });
     });
 });
 
-// Quick preview on middle-click or Ctrl+click
+// Quick preview on right-click
 const dialog = document.getElementById('quick-preview');
 const player = document.getElementById('preview-player');
-const previewTitle = document.getElementById('preview-title');
-const previewLink = document.getElementById('preview-link');
-
 document.querySelectorAll('.top-card').forEach(card => {
     card.addEventListener('contextmenu', (e) => {
-        // Right-click: open quick preview instead of context menu
-        // Only if it's a simple right-click (no modifier keys)
         if (!e.shiftKey) {
             e.preventDefault();
             const id = card.dataset.id;
-            const title = card.querySelector('.card-title')?.textContent || '';
-            previewTitle.textContent = title;
-            previewLink.href = `/clips/${id}`;
+            document.getElementById('preview-title').textContent = card.querySelector('.card-title')?.textContent || '';
+            document.getElementById('preview-link').href = `/clips/${id}`;
             player.querySelector('source').src = `/api/clips/${id}/stream`;
             player.load();
             dialog.showModal();
         }
     });
 });
-
-document.getElementById('close-preview')?.addEventListener('click', () => {
-    player.pause();
-    dialog.close();
-});
-
-dialog?.addEventListener('close', () => {
-    player.pause();
-    player.querySelector('source').src = '';
-    player.load();
-});
+document.getElementById('close-preview')?.addEventListener('click', () => { player.pause(); dialog.close(); });
+dialog?.addEventListener('close', () => { player.pause(); player.querySelector('source').src = ''; player.load(); });
 </script>
 {% endblock %}
