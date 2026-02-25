@@ -39,7 +39,10 @@ FLOW_PARAMS = dict(
 GAMEPLAY_LAP_THRESHOLD = 500.0
 
 # ── Aim snap detection ──────────────────────────────────────────
-SNAP_MIN_DEG_S = 80.0         # minimum speed to count as aim snap
+# Base threshold at 15fps; scales up for higher fps to compensate for
+# optical flow noise floor increasing with frame rate.
+SNAP_BASE_DEG_S = 125.0       # threshold at 15fps
+SNAP_REF_FPS = 15.0           # reference fps for base threshold
 SNAP_COOLDOWN_S = 0.4         # seconds between detections
 
 # ── Movement ────────────────────────────────────────────────────
@@ -219,7 +222,10 @@ class CVFrameAnalyzer:
             )
 
         # ── Aim snaps (fast crosshair movements during gameplay) ─
-        speed_threshold_px = SNAP_MIN_DEG_S / (deg_per_px * effective_fps)
+        # Scale threshold: at higher fps, optical flow noise floor is higher
+        # because sub-pixel displacements get multiplied by larger effective_fps.
+        snap_min_deg_s = SNAP_BASE_DEG_S * (effective_fps / SNAP_REF_FPS) ** 0.5
+        speed_threshold_px = snap_min_deg_s / (deg_per_px * effective_fps)
         cooldown_frames = int(SNAP_COOLDOWN_S * effective_fps)
 
         flicks: list[FlickEvent] = []
@@ -234,7 +240,7 @@ class CVFrameAnalyzer:
             peak_px = gp_speeds[local_i]
             peak_deg_s = peak_px * deg_per_px * effective_fps
 
-            if peak_deg_s < SNAP_MIN_DEG_S:
+            if peak_deg_s < snap_min_deg_s:
                 continue
 
             # Measure duration at half-peak
@@ -277,9 +283,9 @@ class CVFrameAnalyzer:
 
         if len(calm_vy) > 10:
             vy_std = float(np.std(calm_vy))
-            # 0-1 scale: std=0.5 → 1.0, std=6.5 → 0.0
-            # Wider range to account for 15fps frame intervals
-            crosshair_score = max(0.0, min(1.0, 1.0 - (vy_std - 0.5) / 6.0))
+            # Normalize to 0-1 scale.  vy_std is empirically similar
+            # across frame rates (~0.3-2.0 range), so use fixed bounds.
+            crosshair_score = max(0.0, min(1.0, 1.0 - (vy_std - 0.3) / 2.0))
         else:
             crosshair_score = None
 
