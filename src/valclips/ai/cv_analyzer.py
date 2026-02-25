@@ -144,6 +144,8 @@ class CVFrameAnalyzer:
         prev_gray = None
         frame_idx = 0
         analyzed = 0
+        # Pre-allocate flow buffer to avoid repeated allocation
+        flow_buf = np.zeros((th, tw, 2), dtype=np.float32)
 
         while True:
             ret, frame = cap.read()
@@ -158,20 +160,22 @@ class CVFrameAnalyzer:
             gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
 
             if prev_gray is not None:
-                flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, **FLOW_PARAMS)
+                cv2.calcOpticalFlowFarneback(
+                    prev_gray, gray, flow_buf, **FLOW_PARAMS,
+                )
 
                 # Center crosshair region
-                cx_flow = flow[cy_t:cy_b, cx_l:cx_r]
+                cx_flow = flow_buf[cy_t:cy_b, cx_l:cx_r]
                 mag, _ = cv2.cartToPolar(cx_flow[..., 0], cx_flow[..., 1])
                 center_speeds.append(float(np.mean(mag)))
                 center_vy.append(float(np.mean(cx_flow[..., 1])))
 
                 # Movement region (bottom of screen)
-                mv_flow = flow[mv_t:, :]
+                mv_flow = flow_buf[mv_t:, :]
                 move_hx.append(float(np.mean(mv_flow[..., 0])))
 
                 # Peripheral region (excluding center)
-                p_flow = flow[p_t:p_b, p_l:p_r]
+                p_flow = flow_buf[p_t:p_b, p_l:p_r]
                 p_mag, _ = cv2.cartToPolar(p_flow[..., 0], p_flow[..., 1])
                 periph_speeds.append(float(np.mean(p_mag)))
 
