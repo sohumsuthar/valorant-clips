@@ -58,10 +58,17 @@
 {% endif %}
 
 <div class="clip-detail-layout">
-    <div class="player-wrap">
+    <div class="player-wrap" id="player-wrap">
         <video controls preload="metadata" id="clip-player">
             <source src="/api/clips/{{ clip.id }}/stream" type="video/mp4">
         </video>
+        <canvas id="cv-overlay" class="cv-overlay"></canvas>
+        {% if clip.cv_analyzed_at %}
+        <div class="cv-controls">
+            <button id="cv-toggle" class="cv-toggle-btn" title="Toggle CV overlay">CV</button>
+        </div>
+        {% endif %}
+        <div id="cv-flick-timeline" class="cv-flick-timeline"></div>
     </div>
 
     <aside class="meta-panel">
@@ -215,8 +222,284 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault();
         const v = document.getElementById('clip-player');
         if (v) v.paused ? v.play() : v.pause();
+    } else if (e.key === 'v') {
+        const btn = document.getElementById('cv-toggle');
+        if (btn) btn.click();
     }
 });
+
+/* ── CV Overlay System ── */
+(function() {
+    const video = document.getElementById('clip-player');
+    const canvas = document.getElementById('cv-overlay');
+    const toggle = document.getElementById('cv-toggle');
+    const timeline = document.getElementById('cv-flick-timeline');
+    if (!video || !canvas || !toggle) return;
+
+    const ctx = canvas.getContext('2d');
+    let cvData = null;
+    let overlayActive = false;
+    let animFrame = null;
+
+    // CV analyzer region constants (from cv_analyzer.py)
+    const XH = { x1: 0.38, y1: 0.32, x2: 0.62, y2: 0.68 };
+    const MV_Y1 = 0.70;
+    const GP = { x1: 0.20, y1: 0.20, x2: 0.80, y2: 0.80 };
+
+    // Fetch CV data
+    const clipId = {{ clip.id }};
+    fetch(`/api/clips/${clipId}/cv`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+            if (!data) return;
+            cvData = data;
+            buildFlickTimeline();
+        })
+        .catch(() => {});
+
+    // Toggle overlay
+    toggle.addEventListener('click', () => {
+        overlayActive = !overlayActive;
+        toggle.classList.toggle('active', overlayActive);
+        canvas.classList.toggle('active', overlayActive);
+        timeline.classList.toggle('active', overlayActive);
+        if (overlayActive) {
+            resizeCanvas();
+            drawFrame();
+        } else {
+            cancelAnimationFrame(animFrame);
+        }
+    });
+
+    function resizeCanvas() {
+        const rect = video.getBoundingClientRect();
+        canvas.width = rect.width * window.devicePixelRatio;
+        canvas.height = (rect.height - 40) * window.devicePixelRatio; // minus controls
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = (rect.height - 40) + 'px';
+        ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    }
+
+    window.addEventListener('resize', () => { if (overlayActive) resizeCanvas(); });
+    video.addEventListener('loadedmetadata', () => { if (overlayActive) resizeCanvas(); });
+
+    // Active flick tracking
+    function getActiveFlick(t) {
+        if (!cvData || !cvData.flicks) return null;
+        for (const f of cvData.flicks) {
+            const start = f.timestamp - 0.15;
+            const end = f.timestamp + Math.max(f.duration_ms / 1000, 0.3);
+            if (t >= start && t <= end) return f;
+        }
+        return null;
+    }
+
+    function getFlickProximity(t) {
+        if (!cvData || !cvData.flicks) return 0;
+        let minDist = Infinity;
+        for (const f of cvData.flicks) {
+            minDist = Math.min(minDist, Math.abs(t - f.timestamp));
+        }
+        if (minDist > 1.5) return 0;
+        return Math.max(0, 1 - minDist / 1.5);
+    }
+
+    // Main draw loop
+    function drawFrame() {
+        if (!overlayActive) return;
+        const w = canvas.width / window.devicePixelRatio;
+        const h = canvas.height / window.devicePixelRatio;
+        const t = video.currentTime;
+        const dur = video.duration || 1;
+
+        ctx.clearRect(0, 0, w, h);
+
+        if (!cvData) {
+            animFrame = requestAnimationFrame(drawFrame);
+            return;
+        }
+
+        const activeFlick = getActiveFlick(t);
+        const flickProx = getFlickProximity(t);
+
+        // ── Crosshair tracking region ──
+        const xhColor = activeFlick
+            ? `rgba(255, 70, 85, ${0.4 + flickProx * 0.4})`
+            : `rgba(16, 185, 129, 0.2)`;
+        ctx.strokeStyle = xhColor;
+        ctx.lineWidth = activeFlick ? 2.5 : 1.5;
+        ctx.setLineDash(activeFlick ? [] : [6, 4]);
+        const xhX = XH.x1 * w, xhY = XH.y1 * h;
+        const xhW = (XH.x2 - XH.x1) * w, xhH = (XH.y2 - XH.y1) * h;
+        ctx.strokeRect(xhX, xhY, xhW, xhH);
+        ctx.setLineDash([]);
+
+        // Crosshair center dot
+        const cx = w * 0.5, cy = h * 0.5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, activeFlick ? 5 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = activeFlick ? 'rgba(255, 70, 85, 0.9)' : 'rgba(16, 185, 129, 0.5)';
+        ctx.fill();
+
+        // ── Movement region ──
+        ctx.strokeStyle = 'rgba(74, 158, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 6]);
+        ctx.strokeRect(0, MV_Y1 * h, w, h - MV_Y1 * h);
+        ctx.setLineDash([]);
+
+        // ── Gameplay detection region ──
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 8]);
+        ctx.strokeRect(GP.x1 * w, GP.y1 * h, (GP.x2 - GP.x1) * w, (GP.y2 - GP.y1) * h);
+        ctx.setLineDash([]);
+
+        // ── Flick flash effect ──
+        if (activeFlick) {
+            // Red vignette pulse
+            const grad = ctx.createRadialGradient(cx, cy, w * 0.1, cx, cy, w * 0.6);
+            grad.addColorStop(0, 'rgba(255, 70, 85, 0)');
+            grad.addColorStop(1, `rgba(255, 70, 85, ${0.08 + flickProx * 0.12})`);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
+
+            // Speed indicator near crosshair
+            ctx.font = '700 14px monospace';
+            ctx.fillStyle = 'rgba(255, 70, 85, 0.95)';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${Math.round(activeFlick.peak_speed)} deg/s`, cx, xhY - 12);
+
+            // Flash ring around crosshair
+            ctx.beginPath();
+            ctx.arc(cx, cy, 18 + flickProx * 12, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255, 70, 85, ${flickProx * 0.7})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // ── Region labels ──
+        ctx.font = '600 9px -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+
+        // Crosshair label
+        ctx.fillStyle = activeFlick ? 'rgba(255, 70, 85, 0.7)' : 'rgba(16, 185, 129, 0.4)';
+        ctx.fillText('AIM TRACKING', xhX + 4, xhY - 4);
+
+        // Movement label
+        ctx.fillStyle = 'rgba(74, 158, 255, 0.3)';
+        ctx.fillText('MOVEMENT', 4, MV_Y1 * h - 4);
+
+        // ── Stats HUD (top-left) ──
+        const hudX = 8, hudY = 8;
+        const hudW = 155, hudH = 82;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.beginPath();
+        ctx.roundRect(hudX, hudY, hudW, hudH, 4);
+        ctx.fill();
+
+        ctx.font = '700 8px monospace';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.textAlign = 'left';
+        ctx.fillText('CV MECHANICS', hudX + 6, hudY + 12);
+
+        ctx.font = '11px monospace';
+        const stats = [
+            { label: 'FLICKS', value: cvData.flicks ? cvData.flicks.length : 0, color: '#ff4655' },
+            { label: 'MAX SPD', value: cvData.max_flick_speed ? Math.round(cvData.max_flick_speed) + '°/s' : '--', color: '#f5a623' },
+            { label: 'CROSSHAIR', value: cvData.crosshair_score != null ? Math.round(cvData.crosshair_score * 100) + '%' : '--', color: '#10b981' },
+            { label: 'GAMEPLAY', value: cvData.gameplay_pct != null ? Math.round(cvData.gameplay_pct) + '%' : '--', color: '#4a9eff' },
+        ];
+
+        stats.forEach((s, i) => {
+            const y = hudY + 24 + i * 14;
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.font = '600 8px monospace';
+            ctx.fillText(s.label, hudX + 6, y);
+            ctx.fillStyle = s.color;
+            ctx.font = '700 11px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(String(s.value), hudX + hudW - 6, y);
+            ctx.textAlign = 'left';
+        });
+
+        // ── Flick counter (top-right, near toggle) ──
+        if (cvData.flicks && cvData.flicks.length > 0) {
+            // Count flicks up to current time
+            const flicksSoFar = cvData.flicks.filter(f => f.timestamp <= t).length;
+            const totalFlicks = cvData.flicks.length;
+
+            ctx.font = '700 11px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillStyle = activeFlick ? '#ff4655' : 'rgba(255,255,255,0.35)';
+            ctx.fillText(`FLICK ${flicksSoFar}/${totalFlicks}`, w - 50, 20);
+        }
+
+        // ── Progress playhead on timeline ──
+        if (timeline.classList.contains('active')) {
+            const playhead = timeline.querySelector('.cv-playhead');
+            if (playhead) {
+                playhead.style.left = (t / dur * 100) + '%';
+            }
+        }
+
+        animFrame = requestAnimationFrame(drawFrame);
+    }
+
+    video.addEventListener('timeupdate', () => {
+        // Update playhead position
+        if (timeline.classList.contains('active')) {
+            const playhead = timeline.querySelector('.cv-playhead');
+            if (playhead && video.duration) {
+                playhead.style.left = (video.currentTime / video.duration * 100) + '%';
+            }
+        }
+    });
+
+    video.addEventListener('play', () => { if (overlayActive) drawFrame(); });
+    video.addEventListener('seeked', () => { if (overlayActive) drawFrame(); });
+
+    // Build flick timeline markers
+    function buildFlickTimeline() {
+        if (!cvData || !cvData.flicks || !timeline) return;
+        timeline.innerHTML = '';
+
+        // Add playhead
+        const playhead = document.createElement('div');
+        playhead.className = 'cv-playhead';
+        playhead.style.cssText = 'position:absolute;top:0;width:2px;height:100%;background:#fff;z-index:1;pointer-events:none;transition:left 0.1s linear;';
+        timeline.appendChild(playhead);
+
+        const dur = video.duration || {{ clip.duration_seconds or 60 }};
+
+        cvData.flicks.forEach(f => {
+            const pct = (f.timestamp / dur) * 100;
+            const marker = document.createElement('div');
+            marker.className = 'cv-flick-marker';
+            if (f.peak_speed >= 500) marker.classList.add('speed-high');
+            else if (f.peak_speed >= 300) marker.classList.add('speed-mid');
+            else marker.classList.add('speed-low');
+            marker.style.left = pct + '%';
+            marker.title = `${Math.round(f.peak_speed)} deg/s @ ${f.timestamp.toFixed(1)}s`;
+            marker.addEventListener('click', () => { video.currentTime = Math.max(0, f.timestamp - 0.5); });
+            timeline.appendChild(marker);
+        });
+
+        // Click timeline to seek
+        timeline.addEventListener('click', (e) => {
+            if (e.target.classList.contains('cv-flick-marker')) return;
+            const rect = timeline.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            video.currentTime = pct * (video.duration || dur);
+        });
+        timeline.style.cursor = 'pointer';
+    }
+
+    // Rebuild timeline once video duration is known
+    video.addEventListener('loadedmetadata', () => {
+        if (cvData) buildFlickTimeline();
+    });
+})();
 
 const reBtn = document.getElementById('reanalyze-btn');
 if (reBtn) {

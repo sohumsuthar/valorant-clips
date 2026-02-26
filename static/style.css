@@ -891,12 +891,87 @@ tr:hover td { background: var(--bg-raised); }
     .clip-detail-layout { grid-template-columns: 1fr; }
 }
 
+.player-wrap {
+    position: relative;
+}
+
 .player-wrap video {
     width: 100%;
     border-radius: var(--radius);
     background: #000;
     display: block;
 }
+
+/* CV Overlay */
+.cv-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 40px); /* account for video controls */
+    pointer-events: none;
+    border-radius: var(--radius);
+    z-index: 2;
+    display: none;
+}
+
+.cv-overlay.active { display: block; }
+
+.cv-controls {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 3;
+    display: flex;
+    gap: 4px;
+}
+
+.cv-toggle-btn {
+    padding: 4px 10px !important;
+    font-size: 0.7rem !important;
+    font-weight: 700 !important;
+    font-family: monospace !important;
+    border-radius: 4px !important;
+    background: rgba(0,0,0,0.6) !important;
+    border: 1px solid rgba(255,255,255,0.15) !important;
+    color: #888 !important;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: all 0.15s ease;
+    letter-spacing: 0.05em;
+    min-width: unset !important;
+}
+
+.cv-toggle-btn:hover { border-color: rgba(255,70,85,0.5) !important; color: #ccc !important; }
+.cv-toggle-btn.active { background: rgba(255,70,85,0.25) !important; border-color: var(--val-red) !important; color: var(--val-red) !important; }
+
+/* Flick timeline under video */
+.cv-flick-timeline {
+    position: relative;
+    height: 6px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 0 0 var(--radius) var(--radius);
+    margin-top: -2px;
+    overflow: hidden;
+    display: none;
+}
+
+.cv-flick-timeline.active { display: block; }
+
+.cv-flick-marker {
+    position: absolute;
+    top: 0;
+    width: 4px;
+    height: 100%;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: transform 0.1s ease;
+}
+
+.cv-flick-marker:hover { transform: scaleX(2); }
+.cv-flick-marker.speed-low { background: var(--blue); }
+.cv-flick-marker.speed-mid { background: var(--gold); }
+.cv-flick-marker.speed-high { background: var(--val-red); }
 
 /* Meta panel */
 .meta-panel {
