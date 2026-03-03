@@ -195,6 +195,7 @@ def random():
 @click.argument("clip_id", type=int)
 def open_clip(clip_id: int):
     """Open a clip in the system default video player."""
+    import os
     import subprocess
     import sys
 
@@ -209,7 +210,7 @@ def open_clip(clip_id: int):
     if sys.platform == "darwin":
         subprocess.Popen(["open", path])
     elif sys.platform == "win32":
-        subprocess.Popen(["start", "", path], shell=True)
+        os.startfile(path)  # type: ignore[attr-defined]
     else:
         subprocess.Popen(["xdg-open", path])
 
