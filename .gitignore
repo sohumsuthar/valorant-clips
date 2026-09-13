@@ -28,3 +28,6 @@ Thumbs.db
 
 # Env
 .env
+
+# Local-only research notes (infra topology, not for publication)
+.private/
