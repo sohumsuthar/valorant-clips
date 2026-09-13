@@ -1,6 +1,6 @@
 # Research dossier — what to do with a 10TB Valorant archive
 
-Generated 2026-09-13 by a 12-agent research workflow (run `wf_df45e754-ae5`), phase 1-2 of 5.
+Generated 2026-09-13 by a 31-agent research workflow (run `wf_df45e754-ae5`), all 5 phases complete.
 Total: 374,635 characters of primary research across 12 specialist agents.
 
 ## Purpose
@@ -33,8 +33,14 @@ Phase 2 (Research) surveyed the 2026 landscape: video-understanding models,
 esports-video literature, open-source prior art, Riot data sources, commercial
 products, DGX Spark capability, and 10TB pipeline engineering.
 
-Phases 3-5 (competing proposals, a judge panel, and adversarial fact-checking
-of every load-bearing claim) are appended when complete.
+Phase 3 produced four competing proposals from distinct lenses. Phase 4 scored
+them on a three-judge panel. Phase 5 adversarially fact-checked every
+load-bearing claim: of 12 checked, **3 were refuted and 9 only partially true** --
+zero survived unqualified. The `verify-*.md` files carry those verdicts, and they
+supersede any proposal or research claim they contradict.
+
+Proposals and judge scorecards are withheld (`.private/`): every one of them
+quotes infrastructure detail from the recon reports.
 
 ## Caveat
 
