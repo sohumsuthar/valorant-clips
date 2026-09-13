@@ -2,6 +2,13 @@
 
 Index, browse, tag, and AI-analyze 2,800+ Valorant clips scattered across network shares.
 
+> **Status (2026-09-13): stalled, under reassessment.** The web UI currently
+> returns HTTP 500 on every page (dependency rot — a five-argument fix), and the
+> OpenCV analyzer described below does not work: it scores the same frame `1` at
+> 1080p and `9 / ace` upscaled to 4K. See [`CLAUDE.md`](CLAUDE.md) for the
+> verified state, [`docs/NEXT-STEPS.md`](docs/NEXT-STEPS.md) for the plan, and
+> [`docs/research/`](docs/research/) for the research behind it.
+
 Clips stay in place on GVFS-mounted Samba shares -- valclips only indexes their locations in a local SQLite database, extracts metadata via ffprobe, generates thumbnails, and runs computer vision analysis to detect kills, aces, clutches, and round outcomes.
 
 ## Features
